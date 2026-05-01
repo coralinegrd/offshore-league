@@ -1,0 +1,33 @@
+{
+  "name": "offshore-league",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite --config client/vite.config.js",
+    "dev:server": "node --env-file=.env server/index.js",
+    "restart:server": "powershell -ExecutionPolicy Bypass -File ./scripts/restart-server.ps1",
+    "build": "vite build --config client/vite.config.js",
+    "preview": "vite preview --config client/vite.config.js",
+    "start": "node --env-file=.env server/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
+    "better-sqlite3": "^12.9.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "stripe": "^22.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
+    "vite": "latest"
+  }
+}

@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: offshore-league
+    runtime: node
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/challenge
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_URL
+        sync: false
+      - key: OFFSHORE_DB_PATH
+        value: /var/data/offshore/offshore-league.sqlite
+      - key: VITE_STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUBMISSION_MAX_VIDEO_BYTES
+        value: 536870912
+      - key: SUBMISSION_MEDIA_RETENTION_DAYS
+        value: 120
+      - key: MAGIC_LINK_TTL_MINUTES
+        value: 20
+      - key: TERMS_VERSION
+        value: v1.0
+    disks:
+      - name: offshore-data
+        mountPath: /var/data/offshore
+        sizeGB: 1
