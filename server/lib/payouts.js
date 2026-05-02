@@ -8,7 +8,12 @@ export async function settleEligiblePayouts(db, { reviewedBy = "system" } = {}) 
   const challenge = await db.get("SELECT title FROM challenge_settings WHERE id = 1");
   const challengeTitle = challenge?.title || "Tampa Mahi-Mahi Challenge";
 
-  const participantsRow = await db.get("SELECT COUNT(*) AS count FROM participants");
+  const participantsRow = await db.get(
+    `SELECT COUNT(*) AS count
+     FROM participants
+     LEFT JOIN users ON users.id = participants.user_id
+     WHERE COALESCE(users.is_demo, 0) = 0`
+  );
   const participantsCount = Number(participantsRow?.count || 0);
   const winnerAmount = Number((participantsCount * ENTRY_FEE * (1 - PLATFORM_FEE_SHARE)).toFixed(2));
 
@@ -30,10 +35,15 @@ export async function settleEligiblePayouts(db, { reviewedBy = "system" } = {}) 
     LEFT JOIN users ON users.id = participants.user_id
     WHERE submissions.status = 'approved'
       AND submissions.verified_length IS NOT NULL
+      AND COALESCE(users.is_demo, 0) = 0
       AND submissions.verified_length = (
         SELECT MAX(s2.verified_length)
         FROM submissions s2
-        WHERE s2.status = 'approved' AND s2.verified_length IS NOT NULL
+        JOIN participants p2 ON p2.id = s2.participant_id
+        LEFT JOIN users u2 ON u2.id = p2.user_id
+        WHERE s2.status = 'approved'
+          AND s2.verified_length IS NOT NULL
+          AND COALESCE(u2.is_demo, 0) = 0
       )
     ORDER BY submissions.created_at DESC`
   );
@@ -88,7 +98,12 @@ export async function settleEligiblePayouts(db, { reviewedBy = "system" } = {}) 
 }
 
 export async function getPendingPayouts(db, userId = null) {
-  const participantsRow = await db.get("SELECT COUNT(*) AS count FROM participants");
+  const participantsRow = await db.get(
+    `SELECT COUNT(*) AS count
+     FROM participants
+     LEFT JOIN users ON users.id = participants.user_id
+     WHERE COALESCE(users.is_demo, 0) = 0`
+  );
   const participantsCount = Number(participantsRow?.count || 0);
   const winnerAmount = Number((participantsCount * ENTRY_FEE * (1 - PLATFORM_FEE_SHARE)).toFixed(2));
 
@@ -102,12 +117,18 @@ export async function getPendingPayouts(db, userId = null) {
       participants.created_at AS challenge_started_at
     FROM submissions
     JOIN participants ON participants.id = submissions.participant_id
+    LEFT JOIN users ON users.id = participants.user_id
     WHERE submissions.status = 'approved'
       AND submissions.verified_length IS NOT NULL
+      AND COALESCE(users.is_demo, 0) = 0
       AND submissions.verified_length = (
         SELECT MAX(s2.verified_length)
         FROM submissions s2
-        WHERE s2.status = 'approved' AND s2.verified_length IS NOT NULL
+        JOIN participants p2 ON p2.id = s2.participant_id
+        LEFT JOIN users u2 ON u2.id = p2.user_id
+        WHERE s2.status = 'approved'
+          AND s2.verified_length IS NOT NULL
+          AND COALESCE(u2.is_demo, 0) = 0
       )
       AND (? IS NULL OR participants.user_id = ?)
     ORDER BY submissions.created_at DESC`,

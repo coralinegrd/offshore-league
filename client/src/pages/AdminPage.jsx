@@ -757,6 +757,14 @@ export default function AdminPage({ auth, navigate }) {
           <span>Pending Reviews</span>
         </article>
         <article>
+          <strong>{metrics?.realUsers ?? 0}</strong>
+          <span>Real Users</span>
+        </article>
+        <article>
+          <strong>{metrics?.demoUsers ?? 0}</strong>
+          <span>Demo Users</span>
+        </article>
+        <article>
           <strong>{metrics?.submissionRateLimited ?? 0}</strong>
           <span>Submission Blocks</span>
         </article>

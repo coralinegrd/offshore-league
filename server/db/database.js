@@ -115,6 +115,7 @@ export async function initializeDatabase() {
       supabase_user_id TEXT,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
+      is_demo INTEGER NOT NULL DEFAULT 0,
       email_verified_at TEXT,
       avatar_url TEXT,
       address TEXT,
@@ -365,6 +366,127 @@ export async function initializeDatabase() {
     await database.run("UPDATE participants SET challenge_id = ? WHERE challenge_id IS NULL", activeChallenge.id);
   }
 
+  const caboChallenge = await database.get(
+    "SELECT id FROM challenges WHERE lower(title) = lower(?) LIMIT 1",
+    "Cabo San Lucas Offshore Challenge"
+  );
+
+  if (!caboChallenge) {
+    await database.run(
+      `INSERT INTO challenges
+        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', datetime('now', '+90 days'), NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      "Cabo San Lucas Offshore Challenge",
+      "Cabo San Lucas, Mexico",
+      "Blue Marlin, Yellowfin Tuna, Dorado",
+      85
+    );
+  }
+
+  await database.run(
+    `UPDATE challenges
+     SET status = 'active',
+         archived_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE lower(title) = lower(?)`,
+    "Cabo San Lucas Offshore Challenge"
+  );
+
+  const bahamasChallenge = await database.get(
+    "SELECT id FROM challenges WHERE lower(title) = lower(?) LIMIT 1",
+    "Bahamas Nassau / Bimini Offshore Challenge"
+  );
+
+  if (!bahamasChallenge) {
+    await database.run(
+      `INSERT INTO challenges
+        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', datetime('now', '+75 days'), NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      "Bahamas Nassau / Bimini Offshore Challenge",
+      "Bahamas - Nassau / Bimini",
+      "Blue Marlin, Yellowfin Tuna, Mahi-Mahi",
+      50
+    );
+  }
+
+  await database.run(
+    `UPDATE challenges
+     SET status = 'active',
+         archived_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE lower(title) = lower(?)`,
+    "Bahamas Nassau / Bimini Offshore Challenge"
+  );
+
+  const maldivesChallenge = await database.get(
+    "SELECT id FROM challenges WHERE lower(title) = lower(?) LIMIT 1",
+    "Maldives Offshore Challenge"
+  );
+
+  if (!maldivesChallenge) {
+    await database.run(
+      `INSERT INTO challenges
+        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', datetime('now', '+150 days'), NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      "Maldives Offshore Challenge",
+      "Maldives",
+      "Giant Trevally, Yellowfin Tuna, Dorado",
+      150
+    );
+  }
+
+  await database.run(
+    `UPDATE challenges
+     SET status = 'active',
+         archived_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE lower(title) = lower(?)`,
+    "Maldives Offshore Challenge"
+  );
+
+  const mauritiusChallenge = await database.get(
+    "SELECT id FROM challenges WHERE lower(title) = lower(?) LIMIT 1",
+    "Mauritius Offshore Challenge"
+  );
+
+  if (!mauritiusChallenge) {
+    await database.run(
+      `INSERT INTO challenges
+        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, 'draft', datetime('now', '+120 days'), NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      "Mauritius Offshore Challenge",
+      "Mauritius",
+      "Blue Marlin, Yellowfin Tuna",
+      100
+    );
+  }
+
+  const costaRicaChallenge = await database.get(
+    "SELECT id FROM challenges WHERE lower(title) = lower(?) LIMIT 1",
+    "Los Sueños / Quepos Offshore Challenge"
+  );
+
+  if (!costaRicaChallenge) {
+    await database.run(
+      `INSERT INTO challenges
+        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', datetime('now', '+120 days'), NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      "Los Sueños / Quepos Offshore Challenge",
+      "Costa Rica - Los Sueños / Quepos",
+      "Sailfish, Blue Marlin, Dorado",
+      110
+    );
+  }
+
+  await database.run(
+    `UPDATE challenges
+     SET status = 'active',
+         archived_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE lower(title) = lower(?)`,
+    "Los Sueños / Quepos Offshore Challenge"
+  );
+
   const userColumns = await database.all("PRAGMA table_info(users)");
   const hasSupabaseUserId = userColumns.some((column) => column.name === "supabase_user_id");
   const hasAvatarUrl = userColumns.some((column) => column.name === "avatar_url");
@@ -373,6 +495,7 @@ export async function initializeDatabase() {
   const hasLocation = userColumns.some((column) => column.name === "location");
   const hasPayoutMethodType = userColumns.some((column) => column.name === "payout_method_type");
   const hasPayoutMethodDetails = userColumns.some((column) => column.name === "payout_method_details");
+  const hasIsDemo = userColumns.some((column) => column.name === "is_demo");
   const hasNotifyChallengeClosing = userColumns.some((column) => column.name === "notify_challenge_closing");
   const hasNotifySubmissionReviewed = userColumns.some((column) => column.name === "notify_submission_reviewed");
   const hasNotifyNewRegionalChallenges = userColumns.some((column) => column.name === "notify_new_regional_challenges");
@@ -405,6 +528,12 @@ export async function initializeDatabase() {
   if (!hasPayoutMethodDetails) {
     await database.run("ALTER TABLE users ADD COLUMN payout_method_details TEXT");
   }
+
+  if (!hasIsDemo) {
+    await database.run("ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0");
+  }
+
+  await database.run("UPDATE users SET is_demo = COALESCE(is_demo, 0)");
 
   if (!hasNotifyChallengeClosing) {
     await database.run("ALTER TABLE users ADD COLUMN notify_challenge_closing INTEGER NOT NULL DEFAULT 1");

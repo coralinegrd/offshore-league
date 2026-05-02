@@ -113,24 +113,18 @@ async function getCurrentChallengeRecord(db) {
   return db.get("SELECT * FROM challenges WHERE archived_at IS NULL ORDER BY id DESC LIMIT 1");
 }
 
-async function archiveCurrentChallengeRecord(db) {
-  await db.run(
-    `UPDATE challenges
-     SET archived_at = CURRENT_TIMESTAMP,
-         ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
-         updated_at = CURRENT_TIMESTAMP
-     WHERE archived_at IS NULL`
-  );
+async function getSelectedChallengeRecord(db, challengeId) {
+  if (Number.isFinite(challengeId) && challengeId > 0) {
+    return db.get("SELECT * FROM challenges WHERE id = ? LIMIT 1", challengeId);
+  }
+  return getCurrentChallengeRecord(db);
 }
 
 router.get("/challenge", async (req, res, next) => {
   try {
     const db = await getDb();
-    const challenge = await db.get(
-      `SELECT id, title, status, closes_at, cancellation_reason, cancelled_at, updated_at
-       FROM challenge_settings
-       WHERE id = 1`
-    );
+    const requestedChallengeId = Number(req.query.challengeId);
+    const challenge = await getSelectedChallengeRecord(db, requestedChallengeId);
 
     return res.json({
       challenge: normalizeChallengePayload(challenge)
@@ -147,8 +141,10 @@ router.put("/challenge/manage", async (req, res, next) => {
     const location = String(req.body.location || "").trim();
     const species = String(req.body.species || "").trim();
     const numericEntryFee = Number(req.body.entryFee);
+    const requestedChallengeId = Number(req.body.challengeId);
     const closesAtRaw = String(req.body.closesAt || "").trim();
     const db = await getDb();
+    const selectedChallenge = await getSelectedChallengeRecord(db, requestedChallengeId);
 
     if (["create", "edit"].includes(action)) {
       if (!title || !location || !species || !Number.isFinite(numericEntryFee) || numericEntryFee <= 0) {
@@ -160,67 +156,66 @@ router.put("/challenge/manage", async (req, res, next) => {
         return res.status(400).json({ error: "Close time must be a valid future timestamp." });
       }
 
-      await db.run(
-        `UPDATE challenge_settings
-         SET title = ?,
-             location = ?,
-             species = ?,
-             entry_fee = ?,
-             closes_at = ?,
-             status = 'active',
-             cancellation_reason = NULL,
-             cancelled_at = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = 1`,
-        title,
-        location,
-        species,
-        numericEntryFee,
-        closeDate.toISOString()
-      );
-
-      await archiveCurrentChallengeRecord(db);
-      await db.run(
-        `INSERT INTO challenges
-          (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
-         VALUES (?, ?, ?, ?, 'active', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        title,
-        location,
-        species,
-        numericEntryFee,
-        closeDate.toISOString()
-      );
+      if (action === "create") {
+        await db.run(
+          `INSERT INTO challenges
+            (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
+           VALUES (?, ?, ?, ?, 'active', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          title,
+          location,
+          species,
+          numericEntryFee,
+          closeDate.toISOString()
+        );
+      } else {
+        if (!selectedChallenge?.id) {
+          return res.status(404).json({ error: "Challenge not found for edit." });
+        }
+        await db.run(
+          `UPDATE challenges
+           SET title = ?,
+               location = ?,
+               species = ?,
+               entry_fee = ?,
+               closes_at = ?,
+               status = 'active',
+               cancellation_reason = NULL,
+               cancelled_at = NULL,
+               archived_at = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          title,
+          location,
+          species,
+          numericEntryFee,
+          closeDate.toISOString(),
+          selectedChallenge.id
+        );
+      }
     } else if (action === "pause") {
-      await db.run(
-        `UPDATE challenge_settings
-         SET status = 'paused', updated_at = CURRENT_TIMESTAMP
-         WHERE id = 1`
-      );
+      if (!selectedChallenge?.id) {
+        return res.status(404).json({ error: "Challenge not found for pause." });
+      }
       await db.run(
         `UPDATE challenges
          SET status = 'paused', updated_at = CURRENT_TIMESTAMP
-         WHERE archived_at IS NULL`
+         WHERE id = ?`,
+        selectedChallenge.id
       );
     } else if (action === "resume") {
-      await db.run(
-        `UPDATE challenge_settings
-         SET status = 'active', updated_at = CURRENT_TIMESTAMP
-         WHERE id = 1`
-      );
+      if (!selectedChallenge?.id) {
+        return res.status(404).json({ error: "Challenge not found for resume." });
+      }
       await db.run(
         `UPDATE challenges
          SET status = 'active', updated_at = CURRENT_TIMESTAMP
-         WHERE archived_at IS NULL`
+         WHERE id = ?`,
+        selectedChallenge.id
       );
     } else if (action === "close") {
-      await db.run(
-        `UPDATE challenge_settings
-         SET status = 'closed',
-             cancellation_reason = COALESCE(cancellation_reason, 'Closed by admin'),
-             cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = 1`
-      );
+      if (!selectedChallenge?.id) {
+        return res.status(404).json({ error: "Challenge not found for close." });
+      }
       await db.run(
         `UPDATE challenges
          SET status = 'closed',
@@ -228,13 +223,41 @@ router.put("/challenge/manage", async (req, res, next) => {
              ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
              archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
              updated_at = CURRENT_TIMESTAMP
-         WHERE archived_at IS NULL`
+         WHERE id = ?`,
+        selectedChallenge.id
       );
     } else {
       return res.status(400).json({ error: "Unsupported challenge action." });
     }
 
-    const updated = await db.get("SELECT * FROM challenge_settings WHERE id = 1");
+    const updated = action === "create"
+      ? await getCurrentChallengeRecord(db)
+      : await getSelectedChallengeRecord(db, selectedChallenge?.id || requestedChallengeId);
+
+    if (updated?.id) {
+      await db.run(
+        `UPDATE challenge_settings
+         SET title = ?,
+             location = ?,
+             species = ?,
+             entry_fee = ?,
+             status = ?,
+             closes_at = ?,
+             cancellation_reason = ?,
+             cancelled_at = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1`,
+        updated.title,
+        updated.location,
+        updated.species,
+        updated.entry_fee,
+        updated.status,
+        updated.closes_at,
+        updated.cancellation_reason,
+        updated.cancelled_at
+      );
+    }
+
     if (!challengeStatusValues.has(updated?.status)) {
       return res.status(500).json({ error: "Challenge status is invalid after update." });
     }
@@ -250,6 +273,7 @@ router.put("/challenge/manage", async (req, res, next) => {
 router.put("/challenge/close-time", async (req, res, next) => {
   try {
     const closesAt = (req.body.closesAt || "").trim();
+    const requestedChallengeId = Number(req.body.challengeId);
     if (!closesAt) {
       return res.status(400).json({ error: "Challenge close time is required." });
     }
@@ -265,43 +289,55 @@ router.put("/challenge/close-time", async (req, res, next) => {
     }
 
     const db = await getDb();
-    await db.run(
-      `UPDATE challenge_settings
-       SET closes_at = ?,
-           status = 'active',
-           cancellation_reason = NULL,
-           cancelled_at = NULL,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = 1`,
-      parsed.toISOString()
-    );
+    const selectedChallenge = await getSelectedChallengeRecord(db, requestedChallengeId);
+    if (!selectedChallenge?.id) {
+      return res.status(404).json({ error: "Challenge not found for close-time update." });
+    }
 
     await db.run(
       `UPDATE challenges
        SET closes_at = ?,
            status = 'active',
            cancellation_reason = NULL,
+           cancelled_at = NULL,
+           archived_at = NULL,
            updated_at = CURRENT_TIMESTAMP
-       WHERE archived_at IS NULL`,
-      parsed.toISOString()
+       WHERE id = ?`,
+      parsed.toISOString(),
+      selectedChallenge.id
     );
 
     const updated = await db.get(
-      `SELECT id, title, status, closes_at, cancellation_reason, cancelled_at, updated_at
-       FROM challenge_settings
-       WHERE id = 1`
+      `SELECT id, title, location, species, entry_fee, status, closes_at, cancellation_reason, cancelled_at, updated_at
+       FROM challenges
+       WHERE id = ?`,
+      selectedChallenge.id
+    );
+
+    await db.run(
+      `UPDATE challenge_settings
+       SET title = ?,
+           location = ?,
+           species = ?,
+           entry_fee = ?,
+           status = ?,
+           closes_at = ?,
+           cancellation_reason = ?,
+           cancelled_at = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+      updated?.title,
+      updated?.location,
+      updated?.species,
+      updated?.entry_fee,
+      updated?.status,
+      updated?.closes_at,
+      updated?.cancellation_reason,
+      updated?.cancelled_at
     );
 
     return res.json({
-      challenge: {
-        id: updated?.id || 1,
-        title: updated?.title || "Tampa Mahi-Mahi Challenge",
-        status: updated?.status || "active",
-        closesAt: updated?.closes_at || null,
-        cancellationReason: updated?.cancellation_reason || "",
-        cancelledAt: updated?.cancelled_at || null,
-        updatedAt: updated?.updated_at || null
-      }
+      challenge: normalizeChallengePayload(updated)
     });
   } catch (err) {
     return next(err);
@@ -318,6 +354,8 @@ router.get("/metrics", async (req, res, next) => {
     const paidSessionsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'paid'");
     const refundedSessionsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'refunded'");
     const failedPaymentsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'failed'");
+    const realUsersRow = await db.get("SELECT COUNT(*) AS count FROM users WHERE COALESCE(is_demo, 0) = 0");
+    const demoUsersRow = await db.get("SELECT COUNT(*) AS count FROM users WHERE COALESCE(is_demo, 0) = 1");
     const uniqueEntrantsRow = await db.get("SELECT COUNT(DISTINCT lower(email)) AS count FROM participants");
     const repeatEntrantsRow = await db.get(
       `SELECT COUNT(*) AS count
@@ -347,19 +385,32 @@ router.get("/metrics", async (req, res, next) => {
     const repeatRate = uniqueEntrants > 0
       ? Number(((repeatEntrants / uniqueEntrants) * 100).toFixed(2))
       : 0;
-    const winnerAmount = Number((participantsCount * ENTRY_FEE * (1 - PLATFORM_FEE_SHARE)).toFixed(2));
+    const prizeEligibleParticipantsRow = await db.get(
+      `SELECT COUNT(*) AS count
+       FROM participants
+       LEFT JOIN users ON users.id = participants.user_id
+       WHERE COALESCE(users.is_demo, 0) = 0`
+    );
+    const prizeEligibleParticipantsCount = Number(prizeEligibleParticipantsRow?.count || 0);
+    const winnerAmount = Number((prizeEligibleParticipantsCount * ENTRY_FEE * (1 - PLATFORM_FEE_SHARE)).toFixed(2));
     const winners = await db.all(
       `SELECT
         submissions.id,
         participants.created_at AS challenge_started_at
       FROM submissions
       JOIN participants ON participants.id = submissions.participant_id
+      LEFT JOIN users ON users.id = participants.user_id
       WHERE submissions.status = 'approved'
         AND submissions.verified_length IS NOT NULL
+        AND COALESCE(users.is_demo, 0) = 0
         AND submissions.verified_length = (
           SELECT MAX(s2.verified_length)
           FROM submissions s2
-          WHERE s2.status = 'approved' AND s2.verified_length IS NOT NULL
+          JOIN participants p2 ON p2.id = s2.participant_id
+          LEFT JOIN users u2 ON u2.id = p2.user_id
+          WHERE s2.status = 'approved'
+            AND s2.verified_length IS NOT NULL
+            AND COALESCE(u2.is_demo, 0) = 0
         )`
     );
 
@@ -384,6 +435,8 @@ router.get("/metrics", async (req, res, next) => {
       refundedSessions: refundedCount,
       failedPayments: Number(failedPaymentsRow?.count || 0),
       conversionRate,
+      realUsers: Number(realUsersRow?.count || 0),
+      demoUsers: Number(demoUsersRow?.count || 0),
       uniqueEntrants,
       repeatEntrants,
       repeatRate,
