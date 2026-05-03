@@ -123,6 +123,7 @@ function getApiUrl(path) {
 export default function DashboardPage({ auth, navigate, onAuth }) {
   const [challenge, setChallenge] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
+  const [activityEvents, setActivityEvents] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [conditions, setConditions] = useState({
     isLoading: true,
@@ -136,29 +137,6 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
   });
   const hasUnreadNotifications = false;
   const firstName = auth.user?.name?.split(" ")[0] || "Angler";
-  const recentActivity = [];
-
-  if (leaderboard[0]) {
-    const top = leaderboard[0];
-    const lengthValue = Number.isFinite(Number(top.length)) ? Number(top.length).toFixed(1) : "-";
-    recentActivity.push(
-      `${top.display_name} submitted a ${top.species || challenge?.species || "catch"} at ${lengthValue} cm - ${challenge?.location || "Offshore"} · ${toTimeLabel(top.submitted_at)}`
-    );
-  }
-
-  if (Number.isFinite(Number(challenge?.participants)) && Number(challenge.participants) > 0) {
-    const count = Number(challenge.participants);
-    recentActivity.push(
-      `${count} angler${count === 1 ? "" : "s"} joined the ${challenge?.location || "Weekend"} Challenge`
-    );
-  }
-
-  if (recentActivity.length < 2 && leaderboard[1]) {
-    const second = leaderboard[1];
-    recentActivity.push(
-      `${second.display_name} is climbing the leaderboard in ${challenge?.location || "this challenge"}`
-    );
-  }
 
   useEffect(() => {
     fetch(getApiUrl("/api/challenges?status=active"))
@@ -213,6 +191,32 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
       cancelled = true;
     };
   }, [auth?.user?.location, challenge?.location]);
+
+  useEffect(() => {
+    const challengeId = Number(challenge?.id);
+    if (!Number.isFinite(challengeId) || challengeId <= 0) {
+      setActivityEvents([]);
+      return;
+    }
+
+    const regionHint = String(auth?.user?.region || auth?.user?.location || challenge?.location || "").trim();
+    const params = new URLSearchParams();
+    params.set("challengeId", String(challengeId));
+    params.set("limit", "8");
+    if (regionHint) {
+      params.set("region", regionHint);
+    }
+
+    fetch(getApiUrl(`/api/activity-feed?${params.toString()}`))
+      .then((res) => res.json())
+      .then((data) => {
+        const events = Array.isArray(data?.events) ? data.events : [];
+        setActivityEvents(events);
+      })
+      .catch(() => {
+        setActivityEvents([]);
+      });
+  }, [challenge?.id, challenge?.location, auth?.user?.region, auth?.user?.location]);
 
   useEffect(() => {
     if (!auth?.token) return;
@@ -351,10 +355,10 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
         <div className="dashboard-activity-head">
           <h2>Recent Activity</h2>
         </div>
-        {recentActivity.slice(0, 2).map((line) => (
-          <p key={line}>{line}</p>
+        {activityEvents.slice(0, 3).map((event) => (
+          <p key={event.id}>{event.message} · {toTimeLabel(event.occurredAt)}</p>
         ))}
-        {recentActivity.length === 0 && <p>No recent activity yet. Be the first to join.</p>}
+        {activityEvents.length === 0 && <p>No recent activity yet. Be the first to join.</p>}
       </section>
 
       <section className="dashboard-section-title">
