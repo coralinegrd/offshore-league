@@ -182,6 +182,42 @@ function buildDemoEvents({ users, challenge, limit }) {
   return feed;
 }
 
+function buildFallbackDemoPersonas(challengeRegion, challengeSpecies) {
+  const region = String(challengeRegion || "Offshore").trim() || "Offshore";
+  const species = String(challengeSpecies || "Mahi-Mahi").trim() || "Mahi-Mahi";
+
+  return [
+    {
+      id: 9001,
+      name: "Luca Marin",
+      region,
+      location: region,
+      species_preferences: JSON.stringify([species, "Yellowfin Tuna"])
+    },
+    {
+      id: 9002,
+      name: "Ethan Cole",
+      region,
+      location: region,
+      species_preferences: JSON.stringify(["Wahoo", species])
+    },
+    {
+      id: 9003,
+      name: "Nico Alvarez",
+      region,
+      location: region,
+      species_preferences: JSON.stringify([species, "Sailfish"])
+    },
+    {
+      id: 9004,
+      name: "Mateo Cruz",
+      region,
+      location: region,
+      species_preferences: JSON.stringify(["Kingfish", species])
+    }
+  ];
+}
+
 function normalizeString(value) {
   const normalized = String(value || "").trim();
   return normalized || "";
@@ -534,7 +570,11 @@ router.get("/activity-feed", async (req, res, next) => {
        LIMIT 12`
     );
 
-    const filteredDemoUsers = demoUsers
+    const demoPool = demoUsers.length > 0
+      ? demoUsers
+      : buildFallbackDemoPersonas(challengeRegion, challengeSpecies);
+
+    const filteredDemoUsers = demoPool
       .map((user) => ({
         ...user,
         region: String(user.region || user.location || challengeRegion).trim() || challengeRegion
@@ -542,7 +582,7 @@ router.get("/activity-feed", async (req, res, next) => {
       .filter((user) => includesRegion(user.region, regionFilter));
 
     const demoEvents = buildDemoEvents({
-      users: filteredDemoUsers.length > 0 ? filteredDemoUsers : demoUsers,
+      users: filteredDemoUsers.length > 0 ? filteredDemoUsers : demoPool,
       challenge: challengeRow,
       limit: requestedLimit * 2
     });
