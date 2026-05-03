@@ -182,6 +182,38 @@ function buildDemoEvents({ users, challenge, limit }) {
   return feed;
 }
 
+function normalizeString(value) {
+  const normalized = String(value || "").trim();
+  return normalized || "";
+}
+
+async function countRealCatchesInZone(db, challengeId, region) {
+  const normalizedRegion = normalizeString(region).toLowerCase();
+  if (!normalizedRegion) return 0;
+
+  const row = await db.get(
+    `SELECT COUNT(*) AS count
+     FROM submissions s
+     JOIN participants p ON p.id = s.participant_id
+     LEFT JOIN users u ON u.id = p.user_id
+     JOIN challenges c ON c.id = p.challenge_id
+     WHERE p.challenge_id = ?
+       AND s.status = 'approved'
+       AND COALESCE(u.is_demo, 0) = 0
+       AND (
+         lower(COALESCE(NULLIF(TRIM(u.region), ''), NULLIF(TRIM(u.location), ''), '')) LIKE '%' || ? || '%'
+         OR lower(COALESCE(NULLIF(TRIM(s.catch_location), ''), '')) LIKE '%' || ? || '%'
+         OR lower(COALESCE(NULLIF(TRIM(c.location), ''), '')) LIKE '%' || ? || '%'
+       )`,
+    challengeId,
+    normalizedRegion,
+    normalizedRegion,
+    normalizedRegion
+  );
+
+  return Number(row?.count || 0);
+}
+
 async function getChallengeWithStats(db, challengeId) {
   const challenge = await db.get(
     `SELECT
@@ -529,6 +561,72 @@ router.get("/activity-feed", async (req, res, next) => {
       challengeId,
       region: regionFilter || null,
       events: merged
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/zone-chaude", async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const requestedChallengeId = parsePositiveInt(req.query.challengeId, null);
+
+    const fallbackChallenge = await db.get(
+      `SELECT id
+       FROM challenges
+       WHERE archived_at IS NULL
+       ORDER BY
+         CASE status
+           WHEN 'active' THEN 0
+           WHEN 'paused' THEN 1
+           WHEN 'draft' THEN 2
+           WHEN 'closed' THEN 3
+           WHEN 'cancelled' THEN 4
+           ELSE 5
+         END,
+         datetime(closes_at) ASC,
+         id DESC
+       LIMIT 1`
+    );
+
+    const effectiveChallengeId = requestedChallengeId || Number(fallbackChallenge?.id || 0) || null;
+    const row = await db.get("SELECT * FROM editorial_zone_hot WHERE id = 1");
+
+    if (!row || Number(row.is_published || 0) !== 1) {
+      return res.json({ card: null, reason: "not_published" });
+    }
+
+    const rowChallengeId = Number(row.challenge_id || 0) || effectiveChallengeId;
+    if (!rowChallengeId) {
+      return res.json({ card: null, reason: "no_challenge" });
+    }
+
+    const expiresAtMs = Date.parse(row.expires_at || "");
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+      return res.json({ card: null, reason: "expired" });
+    }
+
+    const communityCatchCount = await countRealCatchesInZone(db, rowChallengeId, row.region);
+    if (communityCatchCount >= 10) {
+      return res.json({
+        card: null,
+        reason: "community_threshold",
+        communityCatchCount
+      });
+    }
+
+    return res.json({
+      card: {
+        label: "Offshore League Editorial",
+        title: "Zone chaude cette semaine",
+        challengeId: rowChallengeId,
+        region: normalizeString(row.region),
+        activeSpecies: normalizeString(row.active_species),
+        conditionsNote: normalizeString(row.conditions_note),
+        expiresAt: row.expires_at
+      },
+      communityCatchCount
     });
   } catch (err) {
     return next(err);

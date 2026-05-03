@@ -247,6 +247,20 @@ export async function initializeDatabase() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS editorial_zone_hot (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      challenge_id INTEGER,
+      region TEXT,
+      active_species TEXT,
+      conditions_note TEXT,
+      expires_at TEXT,
+      is_published INTEGER NOT NULL DEFAULT 0,
+      updated_by TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (challenge_id) REFERENCES challenges(id)
+    );
+
     CREATE TABLE IF NOT EXISTS challenges (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -322,6 +336,12 @@ export async function initializeDatabase() {
     `INSERT OR IGNORE INTO challenge_settings
       (id, title, location, species, entry_fee, status)
      VALUES (1, 'Tampa Mahi-Mahi Challenge', 'Tampa', 'Mahi-Mahi', 30, 'active')`
+  );
+
+  await database.run(
+    `INSERT OR IGNORE INTO editorial_zone_hot
+      (id, challenge_id, region, active_species, conditions_note, expires_at, is_published)
+     VALUES (1, NULL, NULL, NULL, NULL, NULL, 0)`
   );
 
   const challengeSettingColumns = await database.all("PRAGMA table_info(challenge_settings)");

@@ -14,12 +14,20 @@ const reasons = [
 export default function AdminPage({ auth, navigate }) {
   const [metrics, setMetrics] = useState(null);
   const [challengeState, setChallengeState] = useState(null);
+  const [editorialState, setEditorialState] = useState(null);
   const [challengeForm, setChallengeForm] = useState({
     title: "",
     location: "",
     species: "",
     entryFee: "30",
     autoEnrollDemo: true
+  });
+  const [editorialForm, setEditorialForm] = useState({
+    region: "",
+    activeSpecies: "",
+    conditionsNote: "",
+    expiresAt: "",
+    isPublished: false
   });
   const [submissions, setSubmissions] = useState([]);
   const [leaderboardEntries, setLeaderboardEntries] = useState([]);
@@ -32,6 +40,7 @@ export default function AdminPage({ auth, navigate }) {
   const [cancellingChallenge, setCancellingChallenge] = useState(false);
   const [updatingCloseTime, setUpdatingCloseTime] = useState(false);
   const [managingChallenge, setManagingChallenge] = useState(false);
+  const [savingEditorial, setSavingEditorial] = useState(false);
   const [flaggingParticipantId, setFlaggingParticipantId] = useState(0);
   const [bulkFlagging, setBulkFlagging] = useState(false);
   const [bulkRefunding, setBulkRefunding] = useState(false);
@@ -230,6 +239,29 @@ export default function AdminPage({ auth, navigate }) {
     }
   };
 
+  const loadEditorialState = async () => {
+    try {
+      const response = await fetch("/api/admin/editorial-zone-hot", {
+        headers: {
+          Authorization: `Bearer ${auth.token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not load editorial card settings.");
+      const editorial = data.editorial || null;
+      setEditorialState(editorial);
+      setEditorialForm({
+        region: editorial?.region || "",
+        activeSpecies: editorial?.activeSpecies || "",
+        conditionsNote: editorial?.conditionsNote || "",
+        expiresAt: toLocalInputValue(editorial?.expiresAt),
+        isPublished: Boolean(editorial?.isPublished)
+      });
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const loadLeaderboardEntries = async () => {
     try {
       const response = await fetch("/api/admin/leaderboard", {
@@ -349,6 +381,7 @@ export default function AdminPage({ auth, navigate }) {
 
   useEffect(() => {
     loadChallengeState();
+    loadEditorialState();
     loadMetrics();
     loadSubmissions();
     loadLeaderboardEntries();
@@ -358,6 +391,41 @@ export default function AdminPage({ auth, navigate }) {
     loadPayoutHistory();
     loadPayments();
   }, [auth.token]);
+
+  const saveEditorial = async () => {
+    setError("");
+    setSavingEditorial(true);
+    try {
+      const response = await fetch("/api/admin/editorial-zone-hot", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          isPublished: Boolean(editorialForm.isPublished),
+          region: editorialForm.region,
+          activeSpecies: editorialForm.activeSpecies,
+          conditionsNote: editorialForm.conditionsNote,
+          expiresAt: editorialForm.expiresAt ? new Date(editorialForm.expiresAt).toISOString() : "",
+          challengeId: challengeState?.id || null
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not save editorial card.");
+      const editorial = data.editorial || null;
+      setEditorialState(editorial);
+      setEditorialForm((current) => ({
+        ...current,
+        expiresAt: toLocalInputValue(editorial?.expiresAt),
+        isPublished: Boolean(editorial?.isPublished)
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingEditorial(false);
+    }
+  };
 
   const manageChallenge = async (action) => {
     setError("");
@@ -740,6 +808,75 @@ export default function AdminPage({ auth, navigate }) {
             Close Challenge
           </button>
         </div>
+      </section>
+
+      <section className="panel admin-secondary">
+        <div className="mini-heading">
+          <h3>Zone chaude cette semaine</h3>
+          <span>{editorialState?.isPublished ? "published" : "draft"}</span>
+        </div>
+        <div className="admin-form-grid">
+          <label className="compact-field">
+            Region
+            <input
+              value={editorialForm.region}
+              onChange={(event) =>
+                setEditorialForm((current) => ({ ...current, region: event.target.value }))
+              }
+            />
+          </label>
+          <label className="compact-field">
+            Active species
+            <input
+              value={editorialForm.activeSpecies}
+              onChange={(event) =>
+                setEditorialForm((current) => ({ ...current, activeSpecies: event.target.value }))
+              }
+            />
+          </label>
+          <label className="compact-field">
+            Conditions note
+            <input
+              value={editorialForm.conditionsNote}
+              onChange={(event) =>
+                setEditorialForm((current) => ({ ...current, conditionsNote: event.target.value }))
+              }
+            />
+          </label>
+          <label className="compact-field">
+            Expiry date
+            <input
+              type="datetime-local"
+              value={editorialForm.expiresAt}
+              onChange={(event) =>
+                setEditorialForm((current) => ({ ...current, expiresAt: event.target.value }))
+              }
+            />
+          </label>
+          <label className="compact-field">
+            Publish state
+            <select
+              value={editorialForm.isPublished ? "published" : "hidden"}
+              onChange={(event) =>
+                setEditorialForm((current) => ({ ...current, isPublished: event.target.value === "published" }))
+              }
+            >
+              <option value="published">Published</option>
+              <option value="hidden">Hidden</option>
+            </select>
+          </label>
+        </div>
+        <div className="admin-inline-buttons">
+          <button className="primary-btn" type="button" onClick={saveEditorial} disabled={savingEditorial}>
+            {savingEditorial ? "Saving..." : "Save Editorial Card"}
+          </button>
+        </div>
+        {editorialState && (
+          <small className="admin-close-meta">
+            Label: Offshore League Editorial - Community catches in zone: {editorialState.communityCatchCount}
+            {editorialState.autoHiddenByCommunity ? " - Auto-hidden at threshold" : ""}
+          </small>
+        )}
       </section>
 
       <section className="admin-metrics-grid" aria-label="Admin KPIs">

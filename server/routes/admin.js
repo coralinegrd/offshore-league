@@ -164,6 +164,82 @@ function createDemoWaivedSessionId(challengeId, userId) {
   return `demo-waived-${challengeId}-${userId}-${suffix}`;
 }
 
+function normalizeText(value) {
+  const next = String(value || "").trim();
+  return next || null;
+}
+
+async function getDefaultChallengeId(db) {
+  const challenge = await db.get(
+    `SELECT id
+     FROM challenges
+     WHERE archived_at IS NULL
+     ORDER BY
+       CASE status
+         WHEN 'active' THEN 0
+         WHEN 'paused' THEN 1
+         WHEN 'draft' THEN 2
+         WHEN 'closed' THEN 3
+         WHEN 'cancelled' THEN 4
+         ELSE 5
+       END,
+       datetime(closes_at) ASC,
+       id DESC
+     LIMIT 1`
+  );
+  return Number(challenge?.id || 0) || null;
+}
+
+async function countRealCatchesInRegion(db, challengeId, region) {
+  const normalizedRegion = String(region || "").trim().toLowerCase();
+  if (!normalizedRegion) return 0;
+
+  const row = await db.get(
+    `SELECT COUNT(*) AS count
+     FROM submissions s
+     JOIN participants p ON p.id = s.participant_id
+     LEFT JOIN users u ON u.id = p.user_id
+     JOIN challenges c ON c.id = p.challenge_id
+     WHERE p.challenge_id = ?
+       AND s.status = 'approved'
+       AND COALESCE(u.is_demo, 0) = 0
+       AND (
+         lower(COALESCE(NULLIF(TRIM(u.region), ''), NULLIF(TRIM(u.location), ''), '')) LIKE '%' || ? || '%'
+         OR lower(COALESCE(NULLIF(TRIM(s.catch_location), ''), '')) LIKE '%' || ? || '%'
+         OR lower(COALESCE(NULLIF(TRIM(c.location), ''), '')) LIKE '%' || ? || '%'
+       )`,
+    challengeId,
+    normalizedRegion,
+    normalizedRegion,
+    normalizedRegion
+  );
+
+  return Number(row?.count || 0);
+}
+
+function toEditorialPayload(row, communityCatchCount) {
+  const expiresAtMs = row?.expires_at ? new Date(row.expires_at).getTime() : NaN;
+  const expired = !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now();
+  const isPublished = Number(row?.is_published || 0) === 1;
+  const autoHiddenByCommunity = Number(communityCatchCount || 0) >= 10;
+  const visible = isPublished && !expired && !autoHiddenByCommunity;
+
+  return {
+    label: "Offshore League Editorial",
+    challengeId: Number(row?.challenge_id || 0) || null,
+    region: row?.region || "",
+    activeSpecies: row?.active_species || "",
+    conditionsNote: row?.conditions_note || "",
+    expiresAt: row?.expires_at || null,
+    isPublished,
+    visible,
+    expired,
+    autoHiddenByCommunity,
+    communityCatchCount: Number(communityCatchCount || 0),
+    updatedAt: row?.updated_at || null
+  };
+}
+
 async function autoEnrollDemoUsers(db, challenge) {
   if (!challenge?.id || Number(challenge.auto_enroll_demo ?? 1) === 0) {
     return 0;
@@ -225,6 +301,89 @@ router.get("/challenge", async (req, res, next) => {
     return res.json({
       challenge: normalizeChallengePayload(challenge)
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.get("/editorial-zone-hot", async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const row = await db.get("SELECT * FROM editorial_zone_hot WHERE id = 1");
+    const challengeId = Number(row?.challenge_id || 0) || await getDefaultChallengeId(db);
+    const communityCatchCount = challengeId
+      ? await countRealCatchesInRegion(db, challengeId, row?.region)
+      : 0;
+
+    return res.json({ editorial: toEditorialPayload(row, communityCatchCount) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put("/editorial-zone-hot", async (req, res, next) => {
+  try {
+    const db = await getDb();
+    const isPublished = Boolean(req.body.isPublished);
+    const region = normalizeText(req.body.region);
+    const activeSpecies = normalizeText(req.body.activeSpecies);
+    const conditionsNote = normalizeText(req.body.conditionsNote);
+    const expiresAtRaw = normalizeText(req.body.expiresAt);
+    const requestedChallengeId = Number(req.body.challengeId);
+    const fallbackChallengeId = await getDefaultChallengeId(db);
+    const challengeId = Number.isFinite(requestedChallengeId) && requestedChallengeId > 0
+      ? requestedChallengeId
+      : fallbackChallengeId;
+
+    if (isPublished) {
+      if (!challengeId) {
+        return res.status(400).json({ error: "No active challenge found for editorial card." });
+      }
+      if (!region || !activeSpecies || !conditionsNote || !expiresAtRaw) {
+        return res.status(400).json({ error: "Region, active species, conditions note, and expiry date are required." });
+      }
+
+      const expiresAt = new Date(expiresAtRaw);
+      if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
+        return res.status(400).json({ error: "Expiry date must be a valid future timestamp." });
+      }
+
+      await db.run(
+        `UPDATE editorial_zone_hot
+         SET challenge_id = ?,
+             region = ?,
+             active_species = ?,
+             conditions_note = ?,
+             expires_at = ?,
+             is_published = 1,
+             updated_by = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1`,
+        challengeId,
+        region,
+        activeSpecies,
+        conditionsNote,
+        expiresAt.toISOString(),
+        req.user.email
+      );
+    } else {
+      await db.run(
+        `UPDATE editorial_zone_hot
+         SET is_published = 0,
+             updated_by = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1`,
+        req.user.email
+      );
+    }
+
+    const updated = await db.get("SELECT * FROM editorial_zone_hot WHERE id = 1");
+    const effectiveChallengeId = Number(updated?.challenge_id || 0) || fallbackChallengeId;
+    const communityCatchCount = effectiveChallengeId
+      ? await countRealCatchesInRegion(db, effectiveChallengeId, updated?.region)
+      : 0;
+
+    return res.json({ editorial: toEditorialPayload(updated, communityCatchCount) });
   } catch (err) {
     return next(err);
   }

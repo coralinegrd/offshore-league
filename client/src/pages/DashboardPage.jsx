@@ -33,6 +33,15 @@ function toTimeLabel(submittedAt) {
   return `${diffDays}d`;
 }
 
+function toDateLabel(value) {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return "soon";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric"
+  }).format(parsed);
+}
+
 function getBrowserCoordinates() {
   return new Promise((resolve) => {
     if (!("geolocation" in navigator)) {
@@ -124,6 +133,7 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
   const [challenge, setChallenge] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [activityEvents, setActivityEvents] = useState([]);
+  const [editorialCard, setEditorialCard] = useState(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [conditions, setConditions] = useState({
     isLoading: true,
@@ -219,6 +229,23 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
   }, [challenge?.id, challenge?.location, auth?.user?.region, auth?.user?.location]);
 
   useEffect(() => {
+    const challengeId = Number(challenge?.id);
+    if (!Number.isFinite(challengeId) || challengeId <= 0) {
+      setEditorialCard(null);
+      return;
+    }
+
+    fetch(getApiUrl(`/api/zone-chaude?challengeId=${encodeURIComponent(String(challengeId))}`))
+      .then((res) => res.json())
+      .then((data) => {
+        setEditorialCard(data?.card || null);
+      })
+      .catch(() => {
+        setEditorialCard(null);
+      });
+  }, [challenge?.id]);
+
+  useEffect(() => {
     if (!auth?.token) return;
 
     fetch(getApiUrl("/api/auth/me"), {
@@ -311,6 +338,33 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
           </>
         )}
       </article>
+
+      {editorialCard && (
+        <article className="dashboard-editorial">
+          <div className="dashboard-editorial-head">
+            <strong>Zone chaude cette semaine</strong>
+            <span>{editorialCard.label}</span>
+          </div>
+          <div className="dashboard-editorial-grid">
+            <span>
+              Region
+              <b>{editorialCard.region || "-"}</b>
+            </span>
+            <span>
+              Active species
+              <b>{editorialCard.activeSpecies || "-"}</b>
+            </span>
+            <span>
+              Conditions
+              <b>{editorialCard.conditionsNote || "-"}</b>
+            </span>
+            <span>
+              Expires
+              <b>{toDateLabel(editorialCard.expiresAt)}</b>
+            </span>
+          </div>
+        </article>
+      )}
 
       <article className="dashboard-challenge" style={{ backgroundImage: `url(${heroImage})` }}>
         <div>
