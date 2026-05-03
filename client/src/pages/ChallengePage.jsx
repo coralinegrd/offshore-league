@@ -7,7 +7,7 @@ import mahiCard from "../assets/mahi-card.png";
 const emptyForm = { name: "", email: "" };
 const TERMS_VERSION = "2026-05-01";
 
-export default function ChallengePage({ auth, navigate }) {
+export default function ChallengePage({ auth, navigate, challengeId = null }) {
   const [challenge, setChallenge] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -17,16 +17,26 @@ export default function ChallengePage({ auth, navigate }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/challenge")
-      .then((res) => res.json())
-      .then(setChallenge)
+    const challengeEndpoint = Number.isFinite(Number(challengeId)) && Number(challengeId) > 0
+      ? `/api/challenge/${challengeId}`
+      : "/api/challenge";
+
+    fetch(challengeEndpoint)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Challenge details are unavailable right now.");
+        setChallenge(data);
+      })
       .catch(() => setError("Challenge details are unavailable right now."));
 
-    fetch("/api/leaderboard")
+    const leaderboardQuery = Number.isFinite(Number(challengeId)) && Number(challengeId) > 0
+      ? `?challengeId=${encodeURIComponent(String(challengeId))}`
+      : "";
+    fetch(`/api/leaderboard${leaderboardQuery}`)
       .then((res) => res.json())
       .then((data) => setLeaderboard(data.entries || []))
       .catch(() => {});
-  }, []);
+  }, [challengeId]);
 
   const updateField = (event) => {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -66,6 +76,7 @@ export default function ChallengePage({ auth, navigate }) {
           Authorization: `Bearer ${auth.token}`
         },
         body: JSON.stringify({
+          challengeId: challenge?.id,
           acceptedTerms: legalAccepted,
           termsVersion: TERMS_VERSION
         })
@@ -93,9 +104,9 @@ export default function ChallengePage({ auth, navigate }) {
   const ctaCopy =
     participantCount > 0
       ? `${participantCount} angler${participantCount === 1 ? "" : "s"} entered. Prize pool is $${prizePool}.`
-      : "Be the first verified angler in this Tampa challenge.";
+      : "Be the first verified angler in this challenge.";
   const rules = [
-    "Must be 18+ and inside the Tampa challenge zone during the competition window.",
+    `Must be 18+ and inside the ${challenge?.location || challengeConfig.location} challenge zone during the competition window.`,
     "One entry per person and one entry per payment method.",
     "Pay before close; your personal code is issued after Stripe confirms payment.",
     "Target species only. Wrong species or catches outside the window are rejected.",
@@ -108,7 +119,7 @@ export default function ChallengePage({ auth, navigate }) {
       <section className="hero" style={{ backgroundImage: `url(${heroImage})` }}>
         <div className="hero-inner">
           <div className="hero-copy">
-            <p className="pill">Tampa weekend challenge</p>
+            <p className="pill">{challenge?.location || challengeConfig.location} weekend challenge</p>
             <h1 className="hero-title">
               <span>Compete.</span>
               <span>Catch.</span>
@@ -116,7 +127,7 @@ export default function ChallengePage({ auth, navigate }) {
             </h1>
             <p>One weekend. One leaderboard. Real-money skill competition for serious offshore anglers.</p>
             <div className="hero-kpis">
-              <span>Tampa</span>
+              <span>{challenge?.location || challengeConfig.location}</span>
               <span>{challenge?.species || challengeConfig.species}</span>
               <span>${challenge?.entryFee ?? 30} Entry</span>
             </div>
@@ -265,7 +276,18 @@ export default function ChallengePage({ auth, navigate }) {
         <article className="panel live-leaderboard">
           <div className="mini-heading">
             <h3>Live Leaderboard</h3>
-            <button type="button" onClick={() => navigate("/leaderboard")}>View Full Leaderboard</button>
+            <button
+              type="button"
+              onClick={() =>
+                navigate(
+                  challenge?.id
+                    ? `/leaderboard?challengeId=${encodeURIComponent(String(challenge.id))}`
+                    : "/leaderboard"
+                )
+              }
+            >
+              View Full Leaderboard
+            </button>
           </div>
           {leaderboard.length === 0 && <p className="empty-state">No verified catches yet.</p>}
           {leaderboard.slice(0, 5).map((entry, index) => (
@@ -302,7 +324,7 @@ export default function ChallengePage({ auth, navigate }) {
           <p>{ctaCopy}</p>
         </div>
         <button className="primary-btn landing-final-btn" type="button" onClick={() => document.getElementById("join-form")?.scrollIntoView({ behavior: "smooth" })}>
-          Join the Tampa Challenge
+          Join {challenge?.location || challengeConfig.location} Challenge
         </button>
       </section>
     </main>

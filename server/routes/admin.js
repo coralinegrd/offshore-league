@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import crypto from "node:crypto";
 import { Router } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +15,9 @@ const challengeStatusValues = new Set(["draft", "active", "paused", "closed", "c
 const ENTRY_FEE = 30;
 const PLATFORM_FEE_SHARE = 0.2;
 const CHALLENGE_WINDOW_HOURS = 72;
+const DEMO_AUTO_ENROLL_MIN = 3;
+const DEMO_AUTO_ENROLL_MAX = 6;
+const DEMO_WAIVER_REASON = "demo_auto_enroll";
 const validReasons = new Set([
   "missing code",
   "unclear measurement",
@@ -101,6 +105,7 @@ function normalizeChallengePayload(challenge) {
     location: challenge?.location || "Tampa",
     species: challenge?.species || "Mahi-Mahi",
     entryFee: Number(challenge?.entry_fee || ENTRY_FEE),
+    autoEnrollDemo: Number(challenge?.auto_enroll_demo ?? 1) !== 0,
     status: challenge?.status || "active",
     closesAt: challenge?.closes_at || null,
     cancellationReason: challenge?.cancellation_reason || "",
@@ -118,6 +123,97 @@ async function getSelectedChallengeRecord(db, challengeId) {
     return db.get("SELECT * FROM challenges WHERE id = ? LIMIT 1", challengeId);
   }
   return getCurrentChallengeRecord(db);
+}
+
+function sanitizeChallengePrefix(source) {
+  const normalized = String(source || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+  return normalized || "CHALLENGE";
+}
+
+function createChallengeCode(challenge) {
+  const prefix = sanitizeChallengePrefix(challenge?.location || challenge?.title || challenge?.id);
+  const token = crypto
+    .randomBytes(12)
+    .toString("base64url")
+    .replace(/[^A-Za-z0-9]/g, "")
+    .toUpperCase()
+    .slice(0, 12);
+  return `${prefix}-${token}`;
+}
+
+async function createUniqueChallengeCode(db, challenge) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = createChallengeCode(challenge);
+    const existing = await db.get("SELECT id FROM participants WHERE challenge_code = ?", code);
+    if (!existing) {
+      return code;
+    }
+  }
+  throw new Error("Could not generate unique challenge code for demo enrollment.");
+}
+
+function randomAutoEnrollCount() {
+  return Math.floor(Math.random() * (DEMO_AUTO_ENROLL_MAX - DEMO_AUTO_ENROLL_MIN + 1)) + DEMO_AUTO_ENROLL_MIN;
+}
+
+function createDemoWaivedSessionId(challengeId, userId) {
+  const suffix = crypto.randomBytes(8).toString("hex");
+  return `demo-waived-${challengeId}-${userId}-${suffix}`;
+}
+
+async function autoEnrollDemoUsers(db, challenge) {
+  if (!challenge?.id || Number(challenge.auto_enroll_demo ?? 1) === 0) {
+    return 0;
+  }
+
+  const desiredCount = randomAutoEnrollCount();
+  const demoUsers = await db.all(
+    `SELECT id, name, email
+     FROM users
+     WHERE COALESCE(is_demo, 0) = 1
+       AND id NOT IN (
+         SELECT user_id
+         FROM participants
+         WHERE challenge_id = ?
+           AND user_id IS NOT NULL
+       )
+     ORDER BY RANDOM()
+     LIMIT ?`,
+    challenge.id,
+    desiredCount
+  );
+
+  let enrolledCount = 0;
+  for (const demoUser of demoUsers) {
+    const challengeCode = await createUniqueChallengeCode(db, challenge);
+    const participant = await db.run(
+      `INSERT INTO participants (user_id, challenge_id, name, email, challenge_code)
+       VALUES (?, ?, ?, ?, ?)`,
+      demoUser.id,
+      challenge.id,
+      demoUser.name,
+      demoUser.email,
+      challengeCode
+    );
+
+    await db.run(
+      `INSERT INTO checkout_sessions
+        (user_id, stripe_session_id, status, challenge_id, participant_id, is_fee_waived, waiver_reason, paid_at)
+       VALUES (?, ?, 'paid', ?, ?, 1, ?, CURRENT_TIMESTAMP)`,
+      demoUser.id,
+      createDemoWaivedSessionId(challenge.id, demoUser.id),
+      challenge.id,
+      participant.lastID,
+      DEMO_WAIVER_REASON
+    );
+
+    enrolledCount += 1;
+  }
+
+  return enrolledCount;
 }
 
 router.get("/challenge", async (req, res, next) => {
@@ -142,14 +238,22 @@ router.put("/challenge/manage", async (req, res, next) => {
     const species = String(req.body.species || "").trim();
     const numericEntryFee = Number(req.body.entryFee);
     const requestedChallengeId = Number(req.body.challengeId);
+    const autoEnrollDemo = req.body.autoEnrollDemo === undefined
+      ? null
+      : Boolean(req.body.autoEnrollDemo);
     const closesAtRaw = String(req.body.closesAt || "").trim();
     const db = await getDb();
     const selectedChallenge = await getSelectedChallengeRecord(db, requestedChallengeId);
+    let autoEnrolledDemoUsers = 0;
 
     if (["create", "edit"].includes(action)) {
       if (!title || !location || !species || !Number.isFinite(numericEntryFee) || numericEntryFee <= 0) {
         return res.status(400).json({ error: "Title, location, species, and a valid entry fee are required." });
       }
+
+      const normalizedAutoEnrollDemo = autoEnrollDemo === null
+        ? Number(selectedChallenge?.auto_enroll_demo ?? 1) !== 0
+        : autoEnrollDemo;
 
       const closeDate = closesAtRaw ? new Date(closesAtRaw) : new Date(Date.now() + CHALLENGE_WINDOW_HOURS * 60 * 60 * 1000);
       if (!Number.isFinite(closeDate.getTime()) || closeDate.getTime() <= Date.now()) {
@@ -159,14 +263,18 @@ router.put("/challenge/manage", async (req, res, next) => {
       if (action === "create") {
         await db.run(
           `INSERT INTO challenges
-            (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
-           VALUES (?, ?, ?, ?, 'active', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            (title, location, species, entry_fee, auto_enroll_demo, status, closes_at, cancellation_reason, started_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           title,
           location,
           species,
           numericEntryFee,
+          normalizedAutoEnrollDemo ? 1 : 0,
           closeDate.toISOString()
         );
+
+        const createdChallenge = await getCurrentChallengeRecord(db);
+        autoEnrolledDemoUsers = await autoEnrollDemoUsers(db, createdChallenge);
       } else {
         if (!selectedChallenge?.id) {
           return res.status(404).json({ error: "Challenge not found for edit." });
@@ -177,6 +285,7 @@ router.put("/challenge/manage", async (req, res, next) => {
                location = ?,
                species = ?,
                entry_fee = ?,
+               auto_enroll_demo = ?,
                closes_at = ?,
                status = 'active',
                cancellation_reason = NULL,
@@ -188,6 +297,7 @@ router.put("/challenge/manage", async (req, res, next) => {
           location,
           species,
           numericEntryFee,
+          normalizedAutoEnrollDemo ? 1 : 0,
           closeDate.toISOString(),
           selectedChallenge.id
         );
@@ -241,6 +351,7 @@ router.put("/challenge/manage", async (req, res, next) => {
              location = ?,
              species = ?,
              entry_fee = ?,
+           auto_enroll_demo = ?,
              status = ?,
              closes_at = ?,
              cancellation_reason = ?,
@@ -251,6 +362,7 @@ router.put("/challenge/manage", async (req, res, next) => {
         updated.location,
         updated.species,
         updated.entry_fee,
+        Number(updated.auto_enroll_demo ?? 1) !== 0 ? 1 : 0,
         updated.status,
         updated.closes_at,
         updated.cancellation_reason,
@@ -263,7 +375,8 @@ router.put("/challenge/manage", async (req, res, next) => {
     }
 
     return res.json({
-      challenge: normalizeChallengePayload(updated)
+      challenge: normalizeChallengePayload(updated),
+      autoEnrolledDemoUsers
     });
   } catch (err) {
     return next(err);
@@ -308,7 +421,7 @@ router.put("/challenge/close-time", async (req, res, next) => {
     );
 
     const updated = await db.get(
-      `SELECT id, title, location, species, entry_fee, status, closes_at, cancellation_reason, cancelled_at, updated_at
+      `SELECT id, title, location, species, entry_fee, auto_enroll_demo, status, closes_at, cancellation_reason, cancelled_at, updated_at
        FROM challenges
        WHERE id = ?`,
       selectedChallenge.id
@@ -320,6 +433,7 @@ router.put("/challenge/close-time", async (req, res, next) => {
            location = ?,
            species = ?,
            entry_fee = ?,
+           auto_enroll_demo = ?,
            status = ?,
            closes_at = ?,
            cancellation_reason = ?,
@@ -330,6 +444,7 @@ router.put("/challenge/close-time", async (req, res, next) => {
       updated?.location,
       updated?.species,
       updated?.entry_fee,
+      Number(updated?.auto_enroll_demo ?? 1) !== 0 ? 1 : 0,
       updated?.status,
       updated?.closes_at,
       updated?.cancellation_reason,
@@ -351,8 +466,12 @@ router.get("/metrics", async (req, res, next) => {
 
     const entriesRow = await db.get("SELECT COUNT(*) AS count FROM participants");
     const pendingSubmissionsRow = await db.get("SELECT COUNT(*) AS count FROM submissions WHERE status = 'pending'");
-    const paidSessionsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'paid'");
-    const refundedSessionsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'refunded'");
+    const paidSessionsRow = await db.get(
+      "SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'paid' AND COALESCE(is_fee_waived, 0) = 0"
+    );
+    const refundedSessionsRow = await db.get(
+      "SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'refunded' AND COALESCE(is_fee_waived, 0) = 0"
+    );
     const failedPaymentsRow = await db.get("SELECT COUNT(*) AS count FROM checkout_sessions WHERE status = 'failed'");
     const realUsersRow = await db.get("SELECT COUNT(*) AS count FROM users WHERE COALESCE(is_demo, 0) = 0");
     const demoUsersRow = await db.get("SELECT COUNT(*) AS count FROM users WHERE COALESCE(is_demo, 0) = 1");
@@ -457,6 +576,8 @@ router.get("/payments", async (req, res, next) => {
         checkout_sessions.id,
         checkout_sessions.stripe_session_id,
         checkout_sessions.status,
+        checkout_sessions.is_fee_waived,
+        checkout_sessions.waiver_reason,
         checkout_sessions.paid_at,
         checkout_sessions.refunded_at,
         checkout_sessions.refund_status,
@@ -487,6 +608,10 @@ router.post("/refunds/:checkoutId", async (req, res, next) => {
 
     if (checkout.status !== "paid" && checkout.status !== "refunded") {
       return res.status(400).json({ error: "Only paid sessions can be refunded." });
+    }
+
+    if (Number(checkout.is_fee_waived || 0) === 1) {
+      return res.status(400).json({ error: "Waived demo entries do not have chargeable payments to refund." });
     }
 
     const result = await issueRefund(db, checkout, "requested_by_customer");
@@ -524,7 +649,9 @@ router.post("/challenge/cancel", async (req, res, next) => {
       reason
     );
 
-    const paidCheckouts = await db.all("SELECT * FROM checkout_sessions WHERE status = 'paid'");
+    const paidCheckouts = await db.all(
+      "SELECT * FROM checkout_sessions WHERE status = 'paid' AND COALESCE(is_fee_waived, 0) = 0"
+    );
     const refunded = [];
     const failed = [];
 
@@ -802,6 +929,7 @@ router.get("/leaderboard/history", async (req, res, next) => {
           JOIN participants ON participants.id = checkout_sessions.participant_id
           WHERE participants.challenge_id = challenges.id
             AND checkout_sessions.status IN ('paid', 'refunded')
+            AND COALESCE(checkout_sessions.is_fee_waived, 0) = 0
         ) AS successfulCheckouts,
         (
           SELECT COUNT(*)
@@ -853,7 +981,10 @@ router.get("/users", async (req, res, next) => {
         participants.challenge_code,
         participants.created_at,
         checkout_sessions.id AS checkout_id,
-        checkout_sessions.status AS payment_status,
+        CASE
+          WHEN COALESCE(checkout_sessions.is_fee_waived, 0) = 1 THEN 'waived'
+          ELSE checkout_sessions.status
+        END AS payment_status,
         submissions.id AS submission_id,
         submissions.status AS submission_status,
         submissions.rejection_reason,

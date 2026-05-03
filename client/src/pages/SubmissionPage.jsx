@@ -15,10 +15,15 @@ export default function SubmissionPage() {
     const params = new URLSearchParams(window.location.search);
     return params.get("payment_id") || params.get("session_id") || "";
   }, []);
+  const initialChallengeId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("challenge_id") || "";
+  }, []);
   const [formState, setFormState] = useState({
     name: "",
     email: "",
     paymentId: initialPaymentId,
+    challengeId: initialChallengeId,
     challengeCode: initialCode,
     species: "",
     claimedWeight: "",
@@ -104,6 +109,7 @@ export default function SubmissionPage() {
         name: "",
         email: "",
         paymentId: "",
+        challengeId: initialChallengeId,
         challengeCode: "",
         species: "",
         claimedWeight: "",
@@ -165,9 +171,10 @@ export default function SubmissionPage() {
               required
             />
           </label>
+          <input name="challengeId" value={formState.challengeId} type="hidden" readOnly />
           <label>
             Challenge Code
-            <input name="challengeCode" value={formState.challengeCode} onChange={updateField} placeholder="TAMPA-AB12" required />
+            <input name="challengeCode" value={formState.challengeCode} onChange={updateField} placeholder="CITY-AB12CD34" required />
           </label>
           <label>
             Species

@@ -20,9 +20,17 @@ function getRoute() {
   return window.location.pathname || "/";
 }
 
+function getChallengeIdFromRoute(route) {
+  const match = route.match(/^\/challenges\/(\d+)$/);
+  if (!match) return null;
+  const challengeId = Number(match[1]);
+  return Number.isFinite(challengeId) && challengeId > 0 ? challengeId : null;
+}
+
 export default function App() {
   const [route, setRoute] = useState(getRoute());
   const [auth, setAuth] = useState(loadAuth());
+  const isAuthenticated = Boolean(auth?.token || auth?.user);
 
   useEffect(() => {
     const onPopState = () => setRoute(getRoute());
@@ -36,15 +44,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  let page = <ChallengePage auth={auth} navigate={navigate} />;
+  const routeChallengeId = getChallengeIdFromRoute(route);
+  let page = <ChallengePage auth={auth} navigate={navigate} challengeId={routeChallengeId} />;
 
-  if (route === "/challenges") page = <ChallengesPage navigate={navigate} />;
+  if (route === "/challenges") page = <ChallengesPage navigate={navigate} auth={auth} />;
   if (route === "/dashboard") page = <DashboardPage auth={auth} navigate={navigate} onAuth={setAuth} />;
   if (route === "/auth" || route === "/auth/callback") page = <AuthPage navigate={navigate} onAuth={setAuth} />;
   if (route === "/checkout") page = <CheckoutPage auth={auth} navigate={navigate} />;
   if (route === "/success") page = <SuccessPage navigate={navigate} />;
   if (route === "/submit") page = <SubmissionPage navigate={navigate} />;
-  if (route === "/leaderboard") page = <LeaderboardPage />;
+  if (route === "/leaderboard") page = <LeaderboardPage navigate={navigate} />;
+  if (routeChallengeId) page = <ChallengePage auth={auth} navigate={navigate} challengeId={routeChallengeId} />;
   if (route === "/admin") page = <AdminPage auth={auth} navigate={navigate} />;
   if (route === "/terms") page = <TermsPage navigate={navigate} />;
   if (route === "/privacy") page = <PrivacyPage navigate={navigate} />;
@@ -54,7 +64,7 @@ export default function App() {
     <>
       <Nav auth={auth} navigate={navigate} route={route} />
       {page}
-      <BottomNav navigate={navigate} route={route} />
+      {isAuthenticated && <BottomNav navigate={navigate} route={route} />}
       <Footer navigate={navigate} />
     </>
   );

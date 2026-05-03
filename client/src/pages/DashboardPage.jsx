@@ -2,6 +2,118 @@ import { useEffect, useState } from "react";
 import heroImage from "../assets/hero-offshore.png";
 import { saveAuth } from "../authStorage.js";
 
+function toCompassDirection(degrees) {
+  if (!Number.isFinite(degrees)) return "-";
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const index = Math.round(degrees / 45) % 8;
+  return directions[index];
+}
+
+function toKnots(kmh) {
+  if (!Number.isFinite(kmh)) return null;
+  return kmh * 0.539957;
+}
+
+function formatOneDecimal(value) {
+  if (!Number.isFinite(value)) return "-";
+  return value.toFixed(1);
+}
+
+function toTimeLabel(submittedAt) {
+  if (!submittedAt) return "recently";
+  const submittedMs = new Date(submittedAt).getTime();
+  if (!Number.isFinite(submittedMs)) return "recently";
+  const diffMs = Date.now() - submittedMs;
+  if (diffMs <= 0) return "just now";
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 60) return `${diffMinutes}m`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d`;
+}
+
+function getBrowserCoordinates() {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) {
+      resolve(null);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          label: "Near You"
+        });
+      },
+      () => resolve(null),
+      {
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 300000
+      }
+    );
+  });
+}
+
+async function getOpenMeteoConditions({ locationText, browserCoordinates }) {
+  const fallback = {
+    latitude: 27.9506,
+    longitude: -82.4572,
+    label: "Tampa"
+  };
+
+  const searchName = (locationText || "Tampa").split(",")[0].trim() || "Tampa";
+  let coordinates = browserCoordinates || fallback;
+
+  if (!browserCoordinates) {
+    try {
+      const geocodeResponse = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(searchName)}&count=1&language=en&format=json`
+      );
+      const geocodeData = await geocodeResponse.json().catch(() => ({}));
+      const place = Array.isArray(geocodeData?.results) ? geocodeData.results[0] : null;
+
+      if (place?.latitude && place?.longitude) {
+        coordinates = {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          label: place.name || searchName
+        };
+      }
+    } catch {
+      // Fallback coordinates keep dashboard useful if geocoding fails.
+    }
+  }
+
+  const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(String(coordinates.latitude))}&longitude=${encodeURIComponent(String(coordinates.longitude))}&current=wind_speed_10m,wind_direction_10m&timezone=auto`;
+  const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${encodeURIComponent(String(coordinates.latitude))}&longitude=${encodeURIComponent(String(coordinates.longitude))}&current=wave_height,sea_surface_temperature&timezone=auto`;
+
+  const [weatherResponse, marineResponse] = await Promise.all([fetch(weatherUrl), fetch(marineUrl)]);
+  const weatherData = await weatherResponse.json().catch(() => ({}));
+  const marineData = await marineResponse.json().catch(() => ({}));
+
+  const windKmh = Number(weatherData?.current?.wind_speed_10m);
+  const windKnots = toKnots(windKmh);
+  const windDirection = Number(weatherData?.current?.wind_direction_10m);
+  const waveHeight = Number(marineData?.current?.wave_height);
+  const waterTemp = Number(marineData?.current?.sea_surface_temperature);
+  const fishable = Number.isFinite(windKnots) && Number.isFinite(waveHeight)
+    ? windKnots <= 18 && waveHeight <= 2.2
+    : null;
+
+  return {
+    label: coordinates.label,
+    windKnots,
+    windDirection,
+    waveHeight,
+    waterTemp,
+    fishable
+  };
+}
+
 function getApiUrl(path) {
   const isLocalHost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
   const apiBase = import.meta.env.VITE_API_URL || (isLocalHost ? "http://localhost:4000" : "");
@@ -12,20 +124,95 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
   const [challenge, setChallenge] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [conditions, setConditions] = useState({
+    isLoading: true,
+    hasError: false,
+    label: "Tampa",
+    windKnots: null,
+    windDirection: null,
+    waveHeight: null,
+    waterTemp: null,
+    fishable: null
+  });
   const hasUnreadNotifications = false;
   const firstName = auth.user?.name?.split(" ")[0] || "Angler";
+  const recentActivity = [];
+
+  if (leaderboard[0]) {
+    const top = leaderboard[0];
+    const lengthValue = Number.isFinite(Number(top.length)) ? Number(top.length).toFixed(1) : "-";
+    recentActivity.push(
+      `${top.display_name} submitted a ${top.species || challenge?.species || "catch"} at ${lengthValue} cm - ${challenge?.location || "Offshore"} · ${toTimeLabel(top.submitted_at)}`
+    );
+  }
+
+  if (Number.isFinite(Number(challenge?.participants)) && Number(challenge.participants) > 0) {
+    const count = Number(challenge.participants);
+    recentActivity.push(
+      `${count} angler${count === 1 ? "" : "s"} joined the ${challenge?.location || "Weekend"} Challenge`
+    );
+  }
+
+  if (recentActivity.length < 2 && leaderboard[1]) {
+    const second = leaderboard[1];
+    recentActivity.push(
+      `${second.display_name} is climbing the leaderboard in ${challenge?.location || "this challenge"}`
+    );
+  }
 
   useEffect(() => {
-    fetch(getApiUrl("/api/challenge"))
+    fetch(getApiUrl("/api/challenges?status=active"))
       .then((res) => res.json())
-      .then(setChallenge)
-      .catch(() => {});
-
-    fetch(getApiUrl("/api/leaderboard"))
-      .then((res) => res.json())
-      .then((data) => setLeaderboard(data.entries || []))
+      .then((data) => {
+        const nextChallenge = Array.isArray(data?.challenges) ? data.challenges[0] : null;
+        setChallenge(nextChallenge || null);
+        if (!nextChallenge?.id) return;
+        return fetch(getApiUrl(`/api/leaderboard?challengeId=${encodeURIComponent(String(nextChallenge.id))}`))
+          .then((leaderboardResponse) => leaderboardResponse.json())
+          .then((leaderboardData) => setLeaderboard(leaderboardData.entries || []));
+      })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setConditions((prev) => ({
+      ...prev,
+      isLoading: true,
+      hasError: false
+    }));
+
+    getBrowserCoordinates()
+      .then((browserCoordinates) => {
+        if (cancelled) return null;
+        const locationText = auth?.user?.location || challenge?.location;
+        return getOpenMeteoConditions({
+          locationText,
+          browserCoordinates
+        });
+      })
+      .then((nextConditions) => {
+        if (cancelled || !nextConditions) return;
+        setConditions({
+          ...nextConditions,
+          isLoading: false,
+          hasError: false
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setConditions((prev) => ({
+          ...prev,
+          isLoading: false,
+          hasError: true
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth?.user?.location, challenge?.location]);
 
   useEffect(() => {
     if (!auth?.token) return;
@@ -86,14 +273,55 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
         <button type="button" onClick={() => navigate("/challenges")}>View All</button>
       </section>
 
+      <article className="dashboard-conditions" aria-live="polite">
+        <div className="dashboard-conditions-head">
+          <strong>MORNING CONDITIONS</strong>
+          <span>{conditions.label}</span>
+        </div>
+        {conditions.isLoading ? (
+          <p>Loading marine conditions...</p>
+        ) : conditions.hasError ? (
+          <p>Conditions temporarily unavailable.</p>
+        ) : (
+          <>
+            <div className="dashboard-conditions-grid">
+              <span>
+                Wind
+                <b>{formatOneDecimal(conditions.windKnots)} kts {toCompassDirection(conditions.windDirection)}</b>
+              </span>
+              <span>
+                Waves
+                <b>{formatOneDecimal(conditions.waveHeight)} m</b>
+              </span>
+              <span>
+                Water temp
+                <b>{formatOneDecimal(conditions.waterTemp)} C</b>
+              </span>
+              <span>
+                Sea state
+                <b className={conditions.fishable === true ? "ok" : conditions.fishable === false ? "warn" : ""}>
+                  {conditions.fishable === true ? "Fishable" : conditions.fishable === false ? "Rough" : "Check local report"}
+                </b>
+              </span>
+            </div>
+          </>
+        )}
+      </article>
+
       <article className="dashboard-challenge" style={{ backgroundImage: `url(${heroImage})` }}>
         <div>
-          <h3>Tampa Weekend <span>Challenge</span></h3>
+          <h3>{challenge?.location || "Weekend"} <span>Challenge</span></h3>
           <div className="dashboard-meta">
             <span>Ends in <b>{challenge?.countdown || "72h 00m"}</b></span>
             <span>Prize Pool <b>${challenge?.prizePool ?? 0}</b></span>
           </div>
-          <button className="primary-btn" type="button" onClick={() => navigate("/challenges")}>
+          <button
+            className="primary-btn"
+            type="button"
+            onClick={() =>
+              challenge?.id ? navigate(`/challenges/${challenge.id}`) : navigate("/challenges")
+            }
+          >
             Join Challenge - ${challenge?.entryFee ?? 30}
           </button>
         </div>
@@ -119,9 +347,30 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
         </article>
       </section>
 
+      <section className="dashboard-activity panel">
+        <div className="dashboard-activity-head">
+          <h2>Recent Activity</h2>
+        </div>
+        {recentActivity.slice(0, 2).map((line) => (
+          <p key={line}>{line}</p>
+        ))}
+        {recentActivity.length === 0 && <p>No recent activity yet. Be the first to join.</p>}
+      </section>
+
       <section className="dashboard-section-title">
         <h2>Leaderboard</h2>
-        <button type="button" onClick={() => navigate("/leaderboard")}>View All</button>
+        <button
+          type="button"
+          onClick={() =>
+            navigate(
+              challenge?.id
+                ? `/leaderboard?challengeId=${encodeURIComponent(String(challenge.id))}`
+                : "/leaderboard"
+            )
+          }
+        >
+          View All
+        </button>
       </section>
 
       <section className="panel dashboard-leaderboard">

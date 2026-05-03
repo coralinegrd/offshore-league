@@ -6,7 +6,6 @@ import { requireUser } from "./auth.js";
 import { queueTransactionalEmail } from "../lib/notifications.js";
 
 const router = Router();
-const ENTRY_FEE_CENTS = 3000;
 const CURRENCY = "usd";
 const TERMS_VERSION = process.env.TERMS_VERSION || "2026-05-01";
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
@@ -22,14 +21,23 @@ function getClientUrl() {
   return process.env.CLIENT_URL || "http://localhost:5173";
 }
 
-function createChallengeCode() {
+function sanitizeChallengePrefix(source) {
+  const normalized = String(source || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+  return normalized || "CHALLENGE";
+}
+
+function createChallengeCode(challenge) {
+  const prefix = sanitizeChallengePrefix(challenge?.location || challenge?.title || challenge?.id);
   const token = crypto
     .randomBytes(12)
     .toString("base64url")
     .replace(/[^A-Za-z0-9]/g, "")
     .toUpperCase()
-    .slice(0, 16);
-  return `TAMPA-${token}`;
+    .slice(0, 12);
+  return `${prefix}-${token}`;
 }
 
 async function queueWinnerEmail(db, { userId, email, challengeCode }) {
@@ -52,19 +60,19 @@ async function queueWinnerEmail(db, { userId, email, challengeCode }) {
   });
 }
 
-async function getChallengeSettings(db) {
-  return db.get("SELECT * FROM challenge_settings WHERE id = 1");
-}
-
-async function getCurrentChallengeRecord(db) {
+async function getChallengeById(db, challengeId) {
   return db.get(
-    "SELECT id, title FROM challenges WHERE archived_at IS NULL ORDER BY id DESC LIMIT 1"
+    `SELECT id, title, location, species, entry_fee, status, closes_at, archived_at
+     FROM challenges
+     WHERE id = ?
+     LIMIT 1`,
+    challengeId
   );
 }
 
-async function createUniqueChallengeCode(db) {
+async function createUniqueChallengeCode(db, challenge) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const code = createChallengeCode();
+    const code = createChallengeCode(challenge);
     const existing = await db.get("SELECT id FROM participants WHERE challenge_code = ?", code);
     if (!existing) return code;
   }
@@ -100,10 +108,14 @@ async function fulfillPaidCheckout(session) {
     throw new Error("Checkout user not found.");
   }
 
-  const currentChallenge = await getCurrentChallengeRecord(db);
-  const challengeId = checkout.challenge_id || currentChallenge?.id;
-  if (!challengeId) {
-    throw new Error("No active challenge found.");
+  const challengeId = Number(checkout.challenge_id);
+  if (!Number.isFinite(challengeId) || challengeId <= 0) {
+    throw new Error("Checkout session is missing challenge context.");
+  }
+
+  const challenge = await getChallengeById(db, challengeId);
+  if (!challenge) {
+    throw new Error("Challenge not found for checkout fulfillment.");
   }
 
   const existingParticipant = await db.get(
@@ -137,7 +149,7 @@ async function fulfillPaidCheckout(session) {
     };
   }
 
-  const challengeCode = await createUniqueChallengeCode(db);
+  const challengeCode = await createUniqueChallengeCode(db, challenge);
   const participant = await db.run(
     "INSERT INTO participants (user_id, challenge_id, name, email, challenge_code) VALUES (?, ?, ?, ?, ?)",
     user.id,
@@ -220,18 +232,41 @@ router.post("/create-checkout-session", requireUser, async (req, res, next) => {
     if (!requireStripe(res)) return;
 
     const db = await getDb();
-    const challenge = await getChallengeSettings(db);
-    const currentChallenge = await getCurrentChallengeRecord(db);
+    const requestedChallengeId = Number(req.body?.challengeId);
+    const challenge = Number.isFinite(requestedChallengeId) && requestedChallengeId > 0
+      ? await getChallengeById(db, requestedChallengeId)
+      : await db.get(
+        `SELECT id, title, location, species, entry_fee, status, closes_at, archived_at
+         FROM challenges
+         WHERE archived_at IS NULL
+         ORDER BY
+           CASE status WHEN 'active' THEN 0 ELSE 1 END,
+           datetime(closes_at) ASC,
+           id DESC
+         LIMIT 1`
+      );
+
+    if (!challenge?.id) {
+      return res.status(404).json({ error: "Challenge was not found." });
+    }
+
     const closesAtMs = challenge?.closes_at ? new Date(challenge.closes_at).getTime() : null;
     const challengeClosedByTime = Number.isFinite(closesAtMs) && closesAtMs > 0 && Date.now() > closesAtMs;
-    if (challenge?.status !== "active" || challengeClosedByTime || !currentChallenge?.id) {
+    if (challenge?.archived_at || challenge?.status !== "active" || challengeClosedByTime) {
       return res.status(409).json({ error: "Challenge is not accepting entries right now." });
     }
+
+    const entryFee = Number(challenge.entry_fee || 0);
+    if (!Number.isFinite(entryFee) || entryFee <= 0) {
+      return res.status(409).json({ error: "Challenge entry fee is invalid." });
+    }
+
+    const entryFeeCents = Math.round(entryFee * 100);
 
     const existingParticipant = await db.get(
       "SELECT id FROM participants WHERE user_id = ? AND challenge_id = ?",
       req.user.id,
-      currentChallenge.id
+      challenge.id
     );
     if (existingParticipant) {
       return res.status(409).json({ error: "You already entered this challenge. One entry per account is allowed." });
@@ -245,7 +280,7 @@ router.post("/create-checkout-session", requireUser, async (req, res, next) => {
          AND status IN ('pending', 'paid', 'refunded')
        LIMIT 1`,
       req.user.id,
-      currentChallenge.id
+      challenge.id
     );
     if (existingCheckout) {
       const message = existingCheckout.status === "pending"
@@ -293,34 +328,34 @@ router.post("/create-checkout-session", requireUser, async (req, res, next) => {
             currency: CURRENCY,
             product_data: {
               name: "Tampa Mahi-Mahi Challenge Entry",
-              description: "Offshore League skill-based fishing challenge entry"
+              description: `${challenge.title} entry`
             },
-            unit_amount: ENTRY_FEE_CENTS
+            unit_amount: entryFeeCents
           },
           quantity: 1
         }
       ],
       metadata: {
         userId: String(req.user.id),
-        challenge: currentChallenge.title || "tampa-mahi-mahi",
-        challengeId: String(currentChallenge.id)
+        challenge: challenge.title,
+        challengeId: String(challenge.id)
       },
       payment_intent_data: {
         metadata: {
           userId: String(req.user.id),
-          challenge: currentChallenge.title || "tampa-mahi-mahi",
-          challengeId: String(currentChallenge.id)
+          challenge: challenge.title,
+          challengeId: String(challenge.id)
         }
       },
-      success_url: `${clientUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${clientUrl}/`
+      success_url: `${clientUrl}/success?session_id={CHECKOUT_SESSION_ID}&challenge_id=${encodeURIComponent(String(challenge.id))}`,
+      cancel_url: `${clientUrl}/challenges/${challenge.id}`
     });
 
     await db.run(
       "INSERT INTO checkout_sessions (user_id, stripe_session_id, status, challenge_id, payment_intent_id) VALUES (?, ?, 'pending', ?, ?)",
       req.user.id,
       session.id,
-      currentChallenge.id,
+      challenge.id,
       String(session.payment_intent || "")
     );
 
@@ -328,6 +363,7 @@ router.post("/create-checkout-session", requireUser, async (req, res, next) => {
       checkoutStatus: "pending",
       checkoutUrl: session.url,
       stripeSessionId: session.id,
+      challengeId: challenge.id,
       termsVersion: TERMS_VERSION
     });
   } catch (err) {
@@ -402,7 +438,8 @@ router.get("/checkout-session/:sessionId", requireUser, async (req, res, next) =
       checkoutStatus: "paid",
       paid: true,
       challengeCode: participant.challenge_code,
-      paymentId: session.id
+      paymentId: session.id,
+      challengeId: checkout?.challenge_id || null
     });
   } catch (err) {
     next(err);

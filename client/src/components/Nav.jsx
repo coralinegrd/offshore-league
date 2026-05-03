@@ -3,7 +3,7 @@ import logoHorizontal from "../assets/logo-horizontal.png";
 export default function Nav({ auth, navigate, route }) {
   const isAuthenticated = Boolean(auth?.token || auth?.user);
   const isLanding = route === "/";
-  const showGuestActions = !isAuthenticated && route !== "/dashboard";
+  const hideActions = route === "/auth" || route === "/auth/callback";
   const links = [
     { href: "/", label: "Challenges" },
     { href: "/leaderboard", label: "Leaderboard" },
@@ -44,14 +44,27 @@ export default function Nav({ auth, navigate, route }) {
           </button>
         ))}
       </nav>
-      {showGuestActions && (
+      {!hideActions && (
         <div className="nav-actions">
-          <button className="nav-login" type="button" onClick={() => navigate("/auth")}>
-            Log In
-          </button>
-          <button className="nav-cta" type="button" onClick={() => navigate("/")}>
-            Join the Challenge
-          </button>
+          {isAuthenticated ? (
+            <>
+              <button className="nav-login" type="button" onClick={() => navigate("/dashboard")}>
+                Dashboard
+              </button>
+              <button className="nav-cta" type="button" onClick={() => navigate("/profile")}>
+                Profile
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="nav-login" type="button" onClick={() => navigate("/auth")}>
+                Log In
+              </button>
+              <button className="nav-cta" type="button" onClick={() => navigate("/")}>
+                Join the Challenge
+              </button>
+            </>
+          )}
         </div>
       )}
     </header>

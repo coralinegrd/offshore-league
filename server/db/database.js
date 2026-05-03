@@ -120,6 +120,9 @@ export async function initializeDatabase() {
       avatar_url TEXT,
       address TEXT,
       location TEXT,
+      bio TEXT,
+      region TEXT,
+      species_preferences TEXT,
       payout_method_type TEXT,
       payout_method_details TEXT,
       notify_challenge_closing INTEGER NOT NULL DEFAULT 1,
@@ -180,6 +183,8 @@ export async function initializeDatabase() {
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'failed', 'refunded')),
       challenge_id INTEGER,
       participant_id INTEGER,
+      is_fee_waived INTEGER NOT NULL DEFAULT 0,
+      waiver_reason TEXT,
       payment_intent_id TEXT,
       failure_reason TEXT,
       refund_id TEXT,
@@ -234,6 +239,7 @@ export async function initializeDatabase() {
       location TEXT NOT NULL,
       species TEXT NOT NULL,
       entry_fee INTEGER NOT NULL,
+      auto_enroll_demo INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft', 'active', 'paused', 'closed', 'cancelled')),
       closes_at TEXT,
       cancellation_reason TEXT,
@@ -247,6 +253,7 @@ export async function initializeDatabase() {
       location TEXT NOT NULL,
       species TEXT NOT NULL,
       entry_fee INTEGER NOT NULL,
+      auto_enroll_demo INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('draft', 'active', 'paused', 'closed', 'cancelled')),
       closes_at TEXT,
       cancellation_reason TEXT,
@@ -319,11 +326,18 @@ export async function initializeDatabase() {
 
   const challengeSettingColumns = await database.all("PRAGMA table_info(challenge_settings)");
   const hasClosesAt = challengeSettingColumns.some((column) => column.name === "closes_at");
+  const hasChallengeSettingAutoEnrollDemo = challengeSettingColumns.some((column) => column.name === "auto_enroll_demo");
   if (!hasClosesAt) {
     await database.run("ALTER TABLE challenge_settings ADD COLUMN closes_at TEXT");
   }
+  if (!hasChallengeSettingAutoEnrollDemo) {
+    await database.run("ALTER TABLE challenge_settings ADD COLUMN auto_enroll_demo INTEGER NOT NULL DEFAULT 1");
+  }
   await database.run(
     "UPDATE challenge_settings SET closes_at = COALESCE(closes_at, datetime('now', '+72 hours')) WHERE id = 1"
+  );
+  await database.run(
+    "UPDATE challenge_settings SET auto_enroll_demo = COALESCE(auto_enroll_demo, 1) WHERE id = 1"
   );
 
   const participantColumns = await database.all("PRAGMA table_info(participants)");
@@ -338,7 +352,7 @@ export async function initializeDatabase() {
   }
 
   const currentChallengeSettings = await database.get(
-    "SELECT title, location, species, entry_fee, status, closes_at, cancellation_reason FROM challenge_settings WHERE id = 1"
+    "SELECT title, location, species, entry_fee, auto_enroll_demo, status, closes_at, cancellation_reason FROM challenge_settings WHERE id = 1"
   );
   const currentChallengeRecord = await database.get(
     "SELECT id FROM challenges WHERE archived_at IS NULL ORDER BY id DESC LIMIT 1"
@@ -347,17 +361,31 @@ export async function initializeDatabase() {
   if (!currentChallengeRecord && currentChallengeSettings) {
     await database.run(
       `INSERT INTO challenges
-        (title, location, species, entry_fee, status, closes_at, cancellation_reason, started_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        (title, location, species, entry_fee, auto_enroll_demo, status, closes_at, cancellation_reason, started_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       currentChallengeSettings.title,
       currentChallengeSettings.location,
       currentChallengeSettings.species,
       currentChallengeSettings.entry_fee,
+      currentChallengeSettings.auto_enroll_demo,
       currentChallengeSettings.status,
       currentChallengeSettings.closes_at,
       currentChallengeSettings.cancellation_reason
     );
   }
+
+  const challengeColumns = await database.all("PRAGMA table_info(challenges)");
+  const hasChallengeAutoEnrollDemo = challengeColumns.some((column) => column.name === "auto_enroll_demo");
+  const hasChallengeCancelledAt = challengeColumns.some((column) => column.name === "cancelled_at");
+  if (!hasChallengeCancelledAt) {
+    await database.run("ALTER TABLE challenges ADD COLUMN cancelled_at TEXT");
+  }
+  if (!hasChallengeAutoEnrollDemo) {
+    await database.run("ALTER TABLE challenges ADD COLUMN auto_enroll_demo INTEGER NOT NULL DEFAULT 1");
+  }
+  await database.run(
+    "UPDATE challenges SET auto_enroll_demo = COALESCE(auto_enroll_demo, 1)"
+  );
 
   const activeChallenge = await database.get(
     "SELECT id FROM challenges WHERE archived_at IS NULL ORDER BY id DESC LIMIT 1"
@@ -493,6 +521,9 @@ export async function initializeDatabase() {
   const hasEmailVerifiedAt = userColumns.some((column) => column.name === "email_verified_at");
   const hasAddress = userColumns.some((column) => column.name === "address");
   const hasLocation = userColumns.some((column) => column.name === "location");
+  const hasBio = userColumns.some((column) => column.name === "bio");
+  const hasRegion = userColumns.some((column) => column.name === "region");
+  const hasSpeciesPreferences = userColumns.some((column) => column.name === "species_preferences");
   const hasPayoutMethodType = userColumns.some((column) => column.name === "payout_method_type");
   const hasPayoutMethodDetails = userColumns.some((column) => column.name === "payout_method_details");
   const hasIsDemo = userColumns.some((column) => column.name === "is_demo");
@@ -519,6 +550,18 @@ export async function initializeDatabase() {
 
   if (!hasLocation) {
     await database.run("ALTER TABLE users ADD COLUMN location TEXT");
+  }
+
+  if (!hasBio) {
+    await database.run("ALTER TABLE users ADD COLUMN bio TEXT");
+  }
+
+  if (!hasRegion) {
+    await database.run("ALTER TABLE users ADD COLUMN region TEXT");
+  }
+
+  if (!hasSpeciesPreferences) {
+    await database.run("ALTER TABLE users ADD COLUMN species_preferences TEXT");
   }
 
   if (!hasPayoutMethodType) {
@@ -654,6 +697,8 @@ export async function initializeDatabase() {
   }
 
   const checkoutColumns = await database.all("PRAGMA table_info(checkout_sessions)");
+  const hasCheckoutFeeWaived = checkoutColumns.some((column) => column.name === "is_fee_waived");
+  const hasCheckoutWaiverReason = checkoutColumns.some((column) => column.name === "waiver_reason");
   const hasPaymentIntentId = checkoutColumns.some((column) => column.name === "payment_intent_id");
   const hasCheckoutChallengeId = checkoutColumns.some((column) => column.name === "challenge_id");
   const hasFailureReason = checkoutColumns.some((column) => column.name === "failure_reason");
@@ -661,6 +706,12 @@ export async function initializeDatabase() {
   const hasRefundStatus = checkoutColumns.some((column) => column.name === "refund_status");
   const hasRefundedAt = checkoutColumns.some((column) => column.name === "refunded_at");
 
+  if (!hasCheckoutFeeWaived) {
+    await database.run("ALTER TABLE checkout_sessions ADD COLUMN is_fee_waived INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasCheckoutWaiverReason) {
+    await database.run("ALTER TABLE checkout_sessions ADD COLUMN waiver_reason TEXT");
+  }
   if (!hasPaymentIntentId) {
     await database.run("ALTER TABLE checkout_sessions ADD COLUMN payment_intent_id TEXT");
   }
@@ -679,6 +730,8 @@ export async function initializeDatabase() {
   if (!hasRefundedAt) {
     await database.run("ALTER TABLE checkout_sessions ADD COLUMN refunded_at TEXT");
   }
+
+  await database.run("UPDATE checkout_sessions SET is_fee_waived = COALESCE(is_fee_waived, 0)");
 
   await database.run(
     `UPDATE checkout_sessions

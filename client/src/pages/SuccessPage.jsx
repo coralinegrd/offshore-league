@@ -5,8 +5,10 @@ export default function SuccessPage({ navigate }) {
   const params = new URLSearchParams(window.location.search);
   const legacyCode = params.get("code") || "";
   const sessionId = params.get("session_id") || "";
+  const initialChallengeId = params.get("challenge_id") || "";
   const [code, setCode] = useState(legacyCode);
   const [paymentId, setPaymentId] = useState(sessionId);
+  const [challengeId, setChallengeId] = useState(initialChallengeId);
   const [status, setStatus] = useState(sessionId ? "Checking Stripe payment..." : "");
   const [error, setError] = useState("");
 
@@ -43,6 +45,9 @@ export default function SuccessPage({ navigate }) {
         }
         setCode(data.challengeCode);
         setPaymentId(data.paymentId || sessionId);
+        if (data.challengeId) {
+          setChallengeId(String(data.challengeId));
+        }
         setStatus("Stripe payment confirmed.");
       })
       .catch((err) => {
@@ -83,7 +88,7 @@ export default function SuccessPage({ navigate }) {
           type="button"
           onClick={() =>
             navigate(
-              `/submit?code=${encodeURIComponent(code)}&payment_id=${encodeURIComponent(paymentId)}`
+              `/submit?code=${encodeURIComponent(code)}&payment_id=${encodeURIComponent(paymentId)}${challengeId ? `&challenge_id=${encodeURIComponent(challengeId)}` : ""}`
             )
           }
         >

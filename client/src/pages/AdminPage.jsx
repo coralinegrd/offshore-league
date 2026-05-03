@@ -18,7 +18,8 @@ export default function AdminPage({ auth, navigate }) {
     title: "",
     location: "",
     species: "",
-    entryFee: "30"
+    entryFee: "30",
+    autoEnrollDemo: true
   });
   const [submissions, setSubmissions] = useState([]);
   const [leaderboardEntries, setLeaderboardEntries] = useState([]);
@@ -221,7 +222,8 @@ export default function AdminPage({ auth, navigate }) {
         title: challenge?.title || "",
         location: challenge?.location || "",
         species: challenge?.species || "",
-        entryFee: String(challenge?.entryFee || 30)
+        entryFee: String(challenge?.entryFee || 30),
+        autoEnrollDemo: challenge?.autoEnrollDemo !== false
       });
     } catch (err) {
       setError(err.message);
@@ -373,6 +375,7 @@ export default function AdminPage({ auth, navigate }) {
           location: challengeForm.location,
           species: challengeForm.species,
           entryFee: Number(challengeForm.entryFee),
+          autoEnrollDemo: Boolean(challengeForm.autoEnrollDemo),
           closesAt: closeTimeInput ? new Date(closeTimeInput).toISOString() : ""
         })
       });
@@ -706,6 +709,18 @@ export default function AdminPage({ auth, navigate }) {
                 setChallengeForm((current) => ({ ...current, entryFee: event.target.value }))
               }
             />
+          </label>
+          <label className="compact-field">
+            Demo auto-enroll
+            <select
+              value={challengeForm.autoEnrollDemo ? "on" : "off"}
+              onChange={(event) =>
+                setChallengeForm((current) => ({ ...current, autoEnrollDemo: event.target.value === "on" }))
+              }
+            >
+              <option value="on">On (auto-enroll 3-6 demo users)</option>
+              <option value="off">Off</option>
+            </select>
           </label>
         </div>
         <div className="admin-inline-buttons">

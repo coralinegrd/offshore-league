@@ -1,48 +1,47 @@
 import { useEffect, useState } from "react";
 import heroImage from "../assets/hero-offshore.png";
 
-const liveChallenge = {
-  id: "tampa-mahi-mahi",
-  title: "Tampa Mahi-Mahi Challenge",
-  status: "Live",
-  schedule: "Fri - Sun",
-  payout: "80% Payout",
-  fee: 30,
-  image: heroImage,
-  isOpen: true
-};
+function normalizeStatus(challenge) {
+  if (challenge?.status === "active") return "Live";
+  if (challenge?.status === "draft") return "Coming soon";
+  if (challenge?.status === "paused") return "Paused";
+  if (challenge?.status === "closed") return "Closed";
+  if (challenge?.status === "cancelled") return "Cancelled";
+  return "Unavailable";
+}
 
-const upcomingChallenges = [
-  {
-    id: "key-west-deep-water",
-    title: "Key West Deep Water Challenge",
-    status: "Coming soon",
-    schedule: "Saturday",
-    payout: "Prize pool opens soon",
-    fee: 25,
-    image: heroImage,
-    isOpen: false
-  }
-];
+function isChallengeJoinable(challenge) {
+  return challenge?.status === "active";
+}
 
-export default function ChallengesPage({ navigate }) {
+function challengeScheduleText(challenge) {
+  if (!challenge?.closesAt) return "Window set by admin";
+  return `Ends ${new Date(challenge.closesAt).toLocaleString()}`;
+}
+
+export default function ChallengesPage({ navigate, auth }) {
   const [activeTab, setActiveTab] = useState("live");
-  const [primaryChallenge, setPrimaryChallenge] = useState(null);
+  const [challenges, setChallenges] = useState([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/challenge")
-      .then((res) => res.json())
-      .then(setPrimaryChallenge)
-      .catch(() => {});
+    fetch("/api/challenges")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Could not load challenges.");
+        setChallenges(Array.isArray(data.challenges) ? data.challenges : []);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
   }, []);
 
-  const activeChallenge = {
-    ...liveChallenge,
-    fee: primaryChallenge?.entryFee ?? liveChallenge.fee,
-    prize: `$${primaryChallenge?.prizePool ?? 0}+ Prizes`
-  };
-  const visibleChallenges =
-    activeTab === "live" ? [activeChallenge] : activeTab === "upcoming" ? upcomingChallenges : [];
+  const visibleChallenges = challenges.filter((challenge) => {
+    if (activeTab === "live") return challenge.status === "active";
+    if (activeTab === "upcoming") return ["draft", "paused"].includes(challenge.status);
+    if (activeTab === "my joined") return false;
+    return false;
+  });
 
   return (
     <main className="page app-screen challenges-screen">
@@ -64,30 +63,43 @@ export default function ChallengesPage({ navigate }) {
       </div>
 
       <section className="challenge-list">
+        {error && <p className="error">{error}</p>}
+        {loading && (
+          <div className="panel empty-panel">
+            <strong>Loading challenges...</strong>
+            <span>Pulling latest events and prize pools.</span>
+          </div>
+        )}
         {visibleChallenges.length === 0 && (
           <div className="panel empty-panel">
             <strong>No challenges here yet.</strong>
-            <span>Live Tampa events will appear as they open.</span>
+            <span>
+              {activeTab === "my joined" && !auth?.token
+                ? "Log in to view challenges you have joined."
+                : "Challenges will appear here as they open."}
+            </span>
           </div>
         )}
         {visibleChallenges.map((challenge) => {
+          const joinable = isChallengeJoinable(challenge);
           return (
-            <article className="challenge-list-card" key={challenge.id} style={{ backgroundImage: `url(${challenge.image})` }}>
+            <article className="challenge-list-card" key={challenge.id} style={{ backgroundImage: `url(${heroImage})` }}>
               <div>
-                <span className={challenge.isOpen ? "live-badge" : "live-badge muted-badge"}>{challenge.status}</span>
+                <span className={joinable ? "live-badge" : "live-badge muted-badge"}>{normalizeStatus(challenge)}</span>
                 <h2>{challenge.title}</h2>
                 <div className="challenge-card-meta">
-                  <span>{challenge.schedule}</span>
-                  <span>{challenge.payout}</span>
-                  {challenge.prize && <span>{challenge.prize}</span>}
+                  <span>{challengeScheduleText(challenge)}</span>
+                  <span>80% Payout</span>
+                  <span>${challenge.prizePool ?? 0} Prize Pool</span>
+                  <span>{challenge.location}</span>
                 </div>
                 <button
                   className="primary-btn"
-                  disabled={!challenge.isOpen}
+                  disabled={!joinable}
                   type="button"
-                  onClick={() => challenge.isOpen && navigate("/")}
+                  onClick={() => joinable && navigate(`/challenges/${challenge.id}`)}
                 >
-                  {challenge.isOpen ? `Join - $${challenge.fee}` : "Opening Soon"}
+                  {joinable ? `Join - $${challenge.entryFee}` : normalizeStatus(challenge)}
                 </button>
               </div>
             </article>

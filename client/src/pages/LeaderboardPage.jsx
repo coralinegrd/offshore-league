@@ -1,19 +1,45 @@
 import { useEffect, useState } from "react";
 
-export default function LeaderboardPage() {
+export default function LeaderboardPage({ navigate }) {
   const [entries, setEntries] = useState([]);
+  const [challenges, setChallenges] = useState([]);
   const [error, setError] = useState("");
-  const [challenge, setChallenge] = useState("tampa-mahi-mahi");
+  const initialChallengeId = (() => {
+    const params = new URLSearchParams(window.location.search);
+    const value = Number(params.get("challengeId"));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  })();
+  const [challenge, setChallenge] = useState(initialChallengeId);
 
   useEffect(() => {
-    fetch("/api/leaderboard")
+    fetch("/api/leaderboard/history")
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
-        if (!ok) throw new Error(data.error || "Could not load leaderboard.");
-        setEntries(data.entries);
+        if (!ok) throw new Error(data.error || "Could not load challenges.");
+        const challengeHistory = Array.isArray(data.challenges) ? data.challenges : [];
+        setChallenges(challengeHistory);
+        if (!challenge && challengeHistory.length > 0) {
+          const active = challengeHistory.find((item) => item.status === "active" && !item.archived_at);
+          setChallenge(Number(active?.id || challengeHistory[0].id));
+        }
       })
       .catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    if (!challenge) return;
+
+    setError("");
+    fetch(`/api/leaderboard?challengeId=${encodeURIComponent(String(challenge))}`)
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Could not load leaderboard.");
+        setEntries(data.entries || []);
+      })
+      .catch((err) => setError(err.message));
+  }, [challenge]);
+
+  const selectedChallenge = challenges.find((item) => Number(item.id) === Number(challenge));
 
   return (
     <main className="page">
@@ -26,8 +52,16 @@ export default function LeaderboardPage() {
         <div className="leaderboard-controls">
           <label>
             Challenge
-            <select value={challenge} onChange={(event) => setChallenge(event.target.value)}>
-              <option value="tampa-mahi-mahi">Tampa Mahi-Mahi Challenge</option>
+            <select
+              value={challenge ? String(challenge) : ""}
+              onChange={(event) => setChallenge(Number(event.target.value) || null)}
+            >
+              {challenges.length === 0 && <option value="">No challenges</option>}
+              {challenges.map((challengeOption) => (
+                <option key={challengeOption.id} value={String(challengeOption.id)}>
+                  {challengeOption.title}
+                </option>
+              ))}
             </select>
           </label>
           {entries.length > 0 && (
@@ -43,7 +77,7 @@ export default function LeaderboardPage() {
         {entries.length === 0 && (
           <div className="empty-state empty-panel">
             <strong>No verified catches yet.</strong>
-            <span>Challenge opens Friday. First verified catch takes the top spot.</span>
+            <span>First verified catch takes the top spot.</span>
           </div>
         )}
         {entries.map((entry, index) => (
@@ -63,6 +97,13 @@ export default function LeaderboardPage() {
           </div>
         ))}
       </section>
+      {selectedChallenge?.id && (
+        <section className="page-actions">
+          <button className="primary-btn" type="button" onClick={() => navigate(`/challenges/${selectedChallenge.id}`)}>
+            View Challenge
+          </button>
+        </section>
+      )}
     </main>
   );
 }

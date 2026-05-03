@@ -11,6 +11,8 @@
     "dev:client": "vite --config client/vite.config.js",
     "dev:server": "node --env-file=.env server/index.js",
     "restart:server": "powershell -ExecutionPolicy Bypass -File ./scripts/restart-server.ps1",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "assets:demo": "node scripts/build-demo-assets.mjs",
     "build": "vite build --config client/vite.config.js",
     "preview": "vite preview --config client/vite.config.js",
     "start": "node --env-file=.env server/index.js"
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.2",
     "concurrently": "^9.2.1",
+    "sharp": "^0.34.5",
     "vite": "latest"
   }
 }

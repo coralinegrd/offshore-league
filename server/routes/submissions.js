@@ -23,7 +23,7 @@ const SUBMISSION_RATE_LIMIT_MAX = Number.isFinite(parsedRateMax) && parsedRateMa
   : 5;
 const submissionRateBuckets = new Map();
 let submissionRateLimitedCount = 0;
-const CHALLENGE_CODE_PATTERN = /^TAMPA-(?:[A-Z0-9]{16}|UPL\d{8})$/;
+const CHALLENGE_CODE_PATTERN = /^[A-Z0-9]{2,12}-(?:[A-Z0-9]{8,20}|UPL\d{8})$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function getSubmissionSecurityMetrics() {
@@ -200,6 +200,7 @@ router.post("/submissions", async (req, res, next) => {
       name,
       email,
       paymentId,
+      challengeId,
       challengeCode,
       species,
       catchLocation,
@@ -278,21 +279,18 @@ router.post("/submissions", async (req, res, next) => {
     }
 
     const db = await getDb();
-    const challenge = await db.get("SELECT status, closes_at FROM challenge_settings WHERE id = 1");
-    const now = Date.now();
-    const closesAtMs = challenge?.closes_at ? new Date(challenge.closes_at).getTime() : null;
-    const challengeClosed =
-      challenge?.status !== "active" || (Number.isFinite(closesAtMs) && closesAtMs > 0 && now > closesAtMs);
-    if (challengeClosed) {
-      return res.status(409).json({ error: "Challenge is closed. Submission codes are no longer valid." });
-    }
-
+    const requestedChallengeId = Number(challengeId);
     const participant = await db.get(
       `SELECT
         participants.id,
         participants.user_id,
+        participants.challenge_id AS participant_challenge_id,
         participants.challenge_code,
         participants.email,
+        challenges.id AS challenge_id,
+        challenges.status AS challenge_status,
+        challenges.species AS challenge_species,
+        challenges.closes_at AS challenge_closes_at,
         users.email_verified_at,
         checkout_sessions.id AS checkout_id,
         checkout_sessions.stripe_session_id,
@@ -303,6 +301,7 @@ router.post("/submissions", async (req, res, next) => {
       WHERE participants.challenge_code = ?
         AND lower(participants.email) = lower(?)
         AND checkout_sessions.status = 'paid'
+        AND participants.challenge_id IS NOT NULL
         AND (checkout_sessions.stripe_session_id = ? OR CAST(checkout_sessions.id AS TEXT) = ?)
       ORDER BY checkout_sessions.created_at DESC
       LIMIT 1`,
@@ -314,6 +313,23 @@ router.post("/submissions", async (req, res, next) => {
 
     if (!participant) {
       return res.status(400).json({ error: "Payment ID, email, and challenge code must all match a paid entry." });
+    }
+
+    if (Number.isFinite(requestedChallengeId) && requestedChallengeId > 0 && requestedChallengeId !== Number(participant.challenge_id)) {
+      return res.status(400).json({ error: "Submission challenge does not match your paid entry." });
+    }
+
+    const closesAtMs = participant?.challenge_closes_at
+      ? new Date(participant.challenge_closes_at).getTime()
+      : null;
+    const challengeClosed = participant?.challenge_status !== "active"
+      || (Number.isFinite(closesAtMs) && closesAtMs > 0 && Date.now() > closesAtMs);
+    if (challengeClosed) {
+      return res.status(409).json({ error: "This challenge is closed. Submission codes are no longer valid." });
+    }
+
+    if (String(participant.challenge_species || "").trim().toLowerCase() !== normalizedSpecies.toLowerCase()) {
+      return res.status(400).json({ error: "Submitted species does not match the challenge species." });
     }
 
     if (participant.user_id && !participant.email_verified_at) {
