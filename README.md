@@ -70,13 +70,14 @@ The deployment blueprint is in `render.yaml`.
 5. Keep `OFFSHORE_DB_PATH=/var/data/offshore/offshore-league.sqlite` so SQLite uses the attached persistent disk.
 6. After deploy, copy the Render URL (for example: `https://offshore-league.onrender.com`).
 
-### Vercel Frontend -> External Backend Wiring
+### Single Pipeline Deployment
 
-If your frontend is deployed on Vercel and backend is deployed elsewhere, set one variable in the Vercel project:
+Use only the Render web service for both frontend and backend. Do not deploy this repo on a separate frontend host.
 
-- `VITE_API_URL=https://your-backend-host`
-
-Then redeploy the frontend. The app will automatically route all `/api/*` and `/uploads/*` requests to that backend host.
+- Keep the app and API on the same Render service URL.
+- Point `app.offshoreleague.com` directly to the Render service hostname.
+- Keep `CLIENT_URL=https://app.offshoreleague.com` in Render env vars.
+- Remove any frontend-only project (for example Vercel) connected to this repository to avoid stale bundle drift.
 
 ### Spaceship DNS
 
