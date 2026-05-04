@@ -8,6 +8,8 @@ const DEMO_IDENTITIES = [
   "Jake R.",
   "Carlos V.",
   "David M.",
+  "Marco D.",
+  "Sarah M.",
   "Tom B.",
   "Ethan Cole",
   "Nico Alvarez",
@@ -100,6 +102,266 @@ const HISTORY_CHALLENGES = [
     participants: 19,
     prizePool: 1200,
     winner: "Carlos V."
+  },
+  {
+    title: "November Sailfish Classic",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2025-11-01T12:00:00.000Z",
+    endAt: "2025-11-02T23:00:00.000Z",
+    participants: 28,
+    prizePool: 1960,
+    winner: "Marco D."
+  },
+  {
+    title: "Veterans Day Wahoo Chase",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2025-11-08T12:00:00.000Z",
+    endAt: "2025-11-09T23:00:00.000Z",
+    participants: 26,
+    prizePool: 910,
+    winner: "Capt. Mike T."
+  },
+  {
+    title: "November Offshore Open",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2025-11-15T12:00:00.000Z",
+    endAt: "2025-11-16T23:00:00.000Z",
+    participants: 29,
+    prizePool: 2100,
+    winner: "Jake R."
+  },
+  {
+    title: "Thanksgiving Wahoo Sprint",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2025-11-22T12:00:00.000Z",
+    endAt: "2025-11-23T23:00:00.000Z",
+    participants: 27,
+    prizePool: 1900,
+    winner: "Sarah M."
+  },
+  {
+    title: "Late November Slam",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2025-11-29T12:00:00.000Z",
+    endAt: "2025-11-30T23:00:00.000Z",
+    participants: 28,
+    prizePool: 2000,
+    winner: "Tom B."
+  },
+  {
+    title: "December Wahoo Series #1",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2025-12-06T12:00:00.000Z",
+    endAt: "2025-12-07T23:00:00.000Z",
+    participants: 28,
+    prizePool: 840,
+    winner: "Carlos V."
+  },
+  {
+    title: "Mid-December Sailfish Run",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2025-12-13T12:00:00.000Z",
+    endAt: "2025-12-14T23:00:00.000Z",
+    participants: 27,
+    prizePool: 810,
+    winner: "Marco D."
+  },
+  {
+    title: "Christmas Wahoo Dash",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2025-12-20T12:00:00.000Z",
+    endAt: "2025-12-21T23:00:00.000Z",
+    participants: 26,
+    prizePool: 2180,
+    winner: "Capt. Mike T."
+  },
+  {
+    title: "New Year's Offshore Finale",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2025-12-27T12:00:00.000Z",
+    endAt: "2025-12-28T23:00:00.000Z",
+    participants: 30,
+    prizePool: 2500,
+    winner: "Jake R."
+  },
+  {
+    title: "January 2026 Opener",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2026-01-03T12:00:00.000Z",
+    endAt: "2026-01-04T23:00:00.000Z",
+    participants: 16,
+    prizePool: 1200,
+    winner: "Sarah M."
+  },
+  {
+    title: "Amberjack & Wahoo Classic",
+    location: "Tampa Bay, FL",
+    species: "Amberjack",
+    startAt: "2026-01-10T12:00:00.000Z",
+    endAt: "2026-01-11T23:00:00.000Z",
+    participants: 28,
+    prizePool: 1200,
+    winner: "Tom B."
+  },
+  {
+    title: "Winter Offshore Open #4",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2026-01-17T12:00:00.000Z",
+    endAt: "2026-01-18T23:00:00.000Z",
+    participants: 31,
+    prizePool: 1600,
+    winner: "Carlos V."
+  },
+  {
+    title: "January Sailfish Series",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2026-01-24T12:00:00.000Z",
+    endAt: "2026-01-25T23:00:00.000Z",
+    participants: 30,
+    prizePool: 1650,
+    winner: "Marco D."
+  },
+  {
+    title: "February Wahoo Blitz",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2026-01-31T12:00:00.000Z",
+    endAt: "2026-02-01T23:00:00.000Z",
+    participants: 29,
+    prizePool: 1550,
+    winner: "Capt. Mike T."
+  },
+  {
+    title: "Valentine's Sailfish Sprint",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2026-02-07T12:00:00.000Z",
+    endAt: "2026-02-08T23:00:00.000Z",
+    participants: 31,
+    prizePool: 1085,
+    winner: "Jake R."
+  },
+  {
+    title: "Mid-February Wahoo Open",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2026-02-14T12:00:00.000Z",
+    endAt: "2026-02-15T23:00:00.000Z",
+    participants: 30,
+    prizePool: 1200,
+    winner: "Sarah M."
+  },
+  {
+    title: "Late February Slam",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2026-02-21T12:00:00.000Z",
+    endAt: "2026-02-22T23:00:00.000Z",
+    participants: 32,
+    prizePool: 1470,
+    winner: "Tom B."
+  },
+  {
+    title: "February Offshore Final",
+    location: "Gulf of Mexico",
+    species: "Wahoo",
+    startAt: "2026-02-28T12:00:00.000Z",
+    endAt: "2026-03-01T23:00:00.000Z",
+    participants: 31,
+    prizePool: 1290,
+    winner: "Carlos V."
+  },
+  {
+    title: "Spring 2026 Opener",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2026-03-07T12:00:00.000Z",
+    endAt: "2026-03-08T23:00:00.000Z",
+    participants: 33,
+    prizePool: 3460,
+    winner: "Marco D."
+  },
+  {
+    title: "Mahi Season Preview",
+    location: "Gulf of Mexico",
+    species: "Mahi-Mahi",
+    startAt: "2026-03-14T12:00:00.000Z",
+    endAt: "2026-03-15T23:00:00.000Z",
+    participants: 34,
+    prizePool: 1020,
+    winner: "Capt. Mike T."
+  },
+  {
+    title: "March Offshore Classic",
+    location: "Atlantic FL",
+    species: "Sailfish",
+    startAt: "2026-03-21T12:00:00.000Z",
+    endAt: "2026-03-22T23:00:00.000Z",
+    participants: 32,
+    prizePool: 2400,
+    winner: "Jake R."
+  },
+  {
+    title: "Late March Mahi Charge",
+    location: "Gulf of Mexico",
+    species: "Mahi-Mahi",
+    startAt: "2026-03-28T12:00:00.000Z",
+    endAt: "2026-03-29T23:00:00.000Z",
+    participants: 35,
+    prizePool: 2350,
+    winner: "Sarah M."
+  },
+  {
+    title: "April Mahi Classic 2026",
+    location: "Gulf of Mexico",
+    species: "Mahi-Mahi",
+    startAt: "2026-04-04T12:00:00.000Z",
+    endAt: "2026-04-05T23:00:00.000Z",
+    participants: 36,
+    prizePool: 2080,
+    winner: "Tom B."
+  },
+  {
+    title: "Spring Tuna & Mahi Open",
+    location: "Gulf of Mexico",
+    species: "Yellowfin Tuna",
+    startAt: "2026-04-11T12:00:00.000Z",
+    endAt: "2026-04-12T23:00:00.000Z",
+    participants: 35,
+    prizePool: 1050,
+    winner: "Carlos V."
+  },
+  {
+    title: "April Offshore Slam",
+    location: "Atlantic FL",
+    species: "Mahi-Mahi",
+    startAt: "2026-04-18T12:00:00.000Z",
+    endAt: "2026-04-19T23:00:00.000Z",
+    participants: 37,
+    prizePool: 3500,
+    winner: "Marco D."
+  },
+  {
+    title: "Late April Mahi Blitz",
+    location: "Gulf of Mexico",
+    species: "Mahi-Mahi",
+    startAt: "2026-04-25T12:00:00.000Z",
+    endAt: "2026-04-26T23:00:00.000Z",
+    participants: 38,
+    prizePool: 2925,
+    winner: "Capt. Mike T."
   }
 ];
 
