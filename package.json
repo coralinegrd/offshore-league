@@ -16,7 +16,8 @@
     "assets:demo": "node scripts/build-demo-assets.mjs",
     "build": "vite build --config client/vite.config.js",
     "preview": "vite preview --config client/vite.config.js",
-    "start": "node --env-file=.env server/index.js"
+    "start": "node --env-file=.env server/index.js",
+    "start:render": "npm run seed:history && npm run start"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",

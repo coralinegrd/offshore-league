@@ -5,7 +5,7 @@ services:
     plan: starter
     autoDeploy: true
     buildCommand: npm install && npm run build
-    startCommand: npm run start
+    startCommand: npm run start:render
     healthCheckPath: /api/challenge
     envVars:
       - key: NODE_ENV
