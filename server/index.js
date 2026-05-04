@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import multer from "multer";
@@ -17,8 +19,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 4000;
+const execFileAsync = promisify(execFile);
+
+async function runHistorySeedOnBoot() {
+  const shouldSeedInProduction = process.env.NODE_ENV === "production";
+  const seedDisabled = String(process.env.HISTORY_SEED_ON_BOOT || "true").toLowerCase() === "false";
+  if (!shouldSeedInProduction || seedDisabled) return;
+
+  const seedScriptPath = path.resolve(__dirname, "../scripts/seed-history.mjs");
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [seedScriptPath], {
+      cwd: path.resolve(__dirname, "..")
+    });
+    if (stdout) console.log(stdout.trim());
+    if (stderr) console.error(stderr.trim());
+  } catch (error) {
+    console.error("HISTORY_SEED_BOOT_FAILED", error?.message || error);
+  }
+}
 
 await initializeDatabase();
+await runHistorySeedOnBoot();
 
 app.use(cors());
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhook);
