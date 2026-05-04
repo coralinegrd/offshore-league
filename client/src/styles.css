@@ -2723,7 +2723,7 @@ input[type="file"] {
 }
 .dashboard-activity p {
   margin: 0;
-  color: #0f172a;
+  color: var(--text);
   line-height: 1.45;
   font-size: 0.97rem;
 }
