@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import heroImage from "../assets/hero-offshore.png";
 
+function formatCurrency(amount) {
+  const value = Number(amount || 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
 function normalizeStatus(challenge) {
   if (challenge?.status === "active") return "Live";
   if (challenge?.status === "draft") return "Coming soon";
@@ -22,6 +31,7 @@ function challengeScheduleText(challenge) {
 export default function ChallengesPage({ navigate, auth }) {
   const [activeTab, setActiveTab] = useState("live");
   const [challenges, setChallenges] = useState([]);
+  const [historyChallenges, setHistoryChallenges] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -36,11 +46,29 @@ export default function ChallengesPage({ navigate, auth }) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    fetch("/api/leaderboard/history")
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || "Could not load challenge history.");
+        const history = Array.isArray(data?.challenges) ? data.challenges : [];
+        setHistoryChallenges(history);
+      })
+      .catch(() => {
+        setHistoryChallenges([]);
+      });
+  }, []);
+
   const visibleChallenges = challenges.filter((challenge) => {
     if (activeTab === "live") return challenge.status === "active";
     if (activeTab === "upcoming") return ["draft", "paused"].includes(challenge.status);
-    if (activeTab === "my joined") return false;
+    if (activeTab === "past") return false;
     return false;
+  });
+
+  const pastChallenges = historyChallenges.filter((challenge) => {
+    const status = String(challenge?.status || "").toLowerCase();
+    return status === "closed" || status === "cancelled" || Boolean(challenge?.archived_at);
   });
 
   return (
@@ -50,7 +78,7 @@ export default function ChallengesPage({ navigate, auth }) {
       </section>
 
       <div className="segmented-tabs">
-        {["live", "upcoming", "my joined"].map((tab) => (
+        {["live", "upcoming", "past"].map((tab) => (
           <button
             className={activeTab === tab ? "active" : ""}
             key={tab}
@@ -70,17 +98,60 @@ export default function ChallengesPage({ navigate, auth }) {
             <span>Pulling latest events and prize pools.</span>
           </div>
         )}
-        {visibleChallenges.length === 0 && (
+        {activeTab === "past" && pastChallenges.length === 0 && (
           <div className="panel empty-panel">
-            <strong>No challenges here yet.</strong>
-            <span>
-              {activeTab === "my joined" && !auth?.token
-                ? "Log in to view challenges you have joined."
-                : "Challenges will appear here as they open."}
-            </span>
+            <strong>No past challenges available yet.</strong>
+            <span>Past challenge history will appear here.</span>
           </div>
         )}
-        {visibleChallenges.map((challenge) => {
+        {activeTab === "past" && pastChallenges.length > 0 && (
+          <div className="history-list">
+            {pastChallenges.map((challenge) => (
+              <article className="panel history-card" key={challenge.id}>
+                <div className="history-card-head">
+                  <strong>{challenge.title}</strong>
+                  <span>{challenge.date_range || "Completed"}</span>
+                </div>
+                <div className="history-card-grid">
+                  <span>
+                    Species
+                    <b>{challenge.species || "-"}</b>
+                  </span>
+                  <span>
+                    Region
+                    <b>{challenge.location || "-"}</b>
+                  </span>
+                  <span>
+                    Participants
+                    <b>{Number(challenge.participant_count || 0)}</b>
+                  </span>
+                  <span>
+                    Prize Pool
+                    <b>{formatCurrency(challenge.prize_pool)}</b>
+                  </span>
+                  <span>
+                    Winner
+                    <b>{challenge.winner_name || "-"}</b>
+                  </span>
+                </div>
+                <button
+                  className="primary-btn"
+                  type="button"
+                  onClick={() => navigate(`/leaderboard?challengeId=${encodeURIComponent(String(challenge.id))}`)}
+                >
+                  View Results
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+        {activeTab !== "past" && visibleChallenges.length === 0 && (
+          <div className="panel empty-panel">
+            <strong>No challenges here yet.</strong>
+            <span>Challenges will appear here as they open.</span>
+          </div>
+        )}
+        {activeTab !== "past" && visibleChallenges.map((challenge) => {
           const joinable = isChallengeJoinable(challenge);
           return (
             <article className="challenge-list-card" key={challenge.id} style={{ backgroundImage: `url(${heroImage})` }}>

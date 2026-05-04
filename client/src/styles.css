@@ -1990,6 +1990,66 @@ input[type="file"] {
   color: var(--muted);
 }
 
+.history-list {
+  display: grid;
+  gap: 12px;
+}
+
+.history-card {
+  display: grid;
+  gap: 12px;
+  border-radius: 10px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+    rgba(8, 19, 30, 0.84);
+  padding: 14px;
+}
+
+.history-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.history-card-head strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.history-card-head span {
+  color: #b9c5d3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.history-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.history-card-grid span {
+  display: grid;
+  gap: 2px;
+  color: #b9c5d3;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.history-card-grid b {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-transform: none;
+}
+
+.history-card .primary-btn {
+  min-height: 42px;
+}
+
 .footer-logo {
   justify-self: start;
   padding: 0;
