@@ -42,6 +42,13 @@ function toDateLabel(value) {
   }).format(parsed);
 }
 
+function toActivityLabel(eventType) {
+  if (eventType === "join_challenge") return "Joined";
+  if (eventType === "submit_catch") return "Catch";
+  if (eventType === "climb_leaderboard") return "Leaderboard";
+  return "Update";
+}
+
 function buildFallbackActivityEvents({ challenge, regionHint }) {
   const now = Date.now();
   const challengeTitle = String(challenge?.title || "Weekend Challenge").trim() || "Weekend Challenge";
@@ -445,9 +452,15 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
           <h2>Recent Activity</h2>
         </div>
         {activityEvents.slice(0, 3).map((event) => (
-          <p key={event.id}>{event.message} · {toTimeLabel(event.occurredAt)}</p>
+          <article className="activity-row" key={event.id}>
+            <div className="activity-row-top">
+              <span className={`activity-tag ${event.eventType || "update"}`}>{toActivityLabel(event.eventType)}</span>
+              <time dateTime={event.occurredAt}>{toTimeLabel(event.occurredAt)}</time>
+            </div>
+            <p>{event.message}</p>
+          </article>
         ))}
-        {activityEvents.length === 0 && <p>No recent activity yet. Be the first to join.</p>}
+        {activityEvents.length === 0 && <p className="activity-empty">No recent activity yet. Be the first to join.</p>}
       </section>
 
       <section className="dashboard-section-title">
