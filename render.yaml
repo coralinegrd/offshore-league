@@ -36,7 +36,7 @@ services:
         value: 20
       - key: TERMS_VERSION
         value: v1.0
-    disks:
-      - name: offshore-data
-        mountPath: /var/data/offshore
-        sizeGB: 1
+    disk:
+      name: offshore-data
+      mountPath: /var/data/offshore
+      sizeGB: 1

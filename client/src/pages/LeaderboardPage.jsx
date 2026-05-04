@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
 
+function formatCurrency(amount) {
+  const value = Number(amount || 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
 export default function LeaderboardPage({ navigate }) {
   const [entries, setEntries] = useState([]);
   const [challenges, setChallenges] = useState([]);
@@ -73,6 +82,26 @@ export default function LeaderboardPage({ navigate }) {
         </div>
       </section>
       {error && <p className="error">{error}</p>}
+      {selectedChallenge?.id && (
+        <section className="panel challenge-history-summary">
+          <article>
+            <span>Date</span>
+            <strong>{selectedChallenge.date_range || "-"}</strong>
+          </article>
+          <article>
+            <span>Participants</span>
+            <strong>{Number(selectedChallenge.participant_count || 0)}</strong>
+          </article>
+          <article>
+            <span>Prize Pool</span>
+            <strong>{formatCurrency(selectedChallenge.prize_pool)}</strong>
+          </article>
+          <article>
+            <span>Winner</span>
+            <strong>{selectedChallenge.winner_name || "-"}</strong>
+          </article>
+        </section>
+      )}
       <section className="panel leaderboard">
         {entries.length === 0 && (
           <div className="empty-state empty-panel">

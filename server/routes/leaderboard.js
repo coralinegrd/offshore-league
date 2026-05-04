@@ -10,6 +10,25 @@ function displayName(fullName) {
   return [first, initial].filter(Boolean).join(" ");
 }
 
+function toDateRangeLabel(startedAt, endedAt) {
+  const start = new Date(startedAt || "");
+  const end = new Date(endedAt || "");
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return "";
+
+  const monthFormat = new Intl.DateTimeFormat("en-US", { month: "short" });
+  const startMonth = monthFormat.format(start);
+  const endMonth = monthFormat.format(end);
+  const startDay = start.getUTCDate();
+  const endDay = end.getUTCDate();
+  const year = start.getUTCFullYear();
+
+  if (startMonth === endMonth) {
+    return `${startMonth} ${startDay}\u2013${endDay} ${year}`;
+  }
+
+  return `${startMonth} ${startDay}\u2013${endMonth} ${endDay} ${year}`;
+}
+
 router.get("/leaderboard", async (req, res, next) => {
   try {
     const db = await getDb();
@@ -58,15 +77,43 @@ router.get("/leaderboard/history", async (req, res, next) => {
         title,
         location,
         species,
+        entry_fee,
         status,
         started_at,
         ended_at,
-        archived_at
+        archived_at,
+        (
+          SELECT COUNT(*)
+          FROM participants p
+          WHERE p.challenge_id = challenges.id
+        ) AS participant_count,
+        (
+          SELECT p.name
+          FROM submissions s
+          JOIN participants p ON p.id = s.participant_id
+          WHERE p.challenge_id = challenges.id
+            AND s.status = 'approved'
+            AND s.verified_length IS NOT NULL
+          ORDER BY s.verified_length DESC, datetime(s.created_at) ASC
+          LIMIT 1
+        ) AS winner_name
       FROM challenges
-      ORDER BY COALESCE(archived_at, updated_at) DESC, id DESC`
+      ORDER BY datetime(started_at) DESC, id DESC`
     );
 
-    res.json({ challenges });
+    res.json({
+      challenges: challenges.map((challenge) => {
+        const participants = Number(challenge.participant_count || 0);
+        const entryFee = Number(challenge.entry_fee || 0);
+        return {
+          ...challenge,
+          participant_count: participants,
+          prize_pool: Number((participants * entryFee).toFixed(2)),
+          winner_name: challenge.winner_name || "\u2014",
+          date_range: toDateRangeLabel(challenge.started_at, challenge.ended_at || challenge.started_at)
+        };
+      })
+    });
   } catch (err) {
     next(err);
   }

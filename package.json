@@ -12,6 +12,7 @@
     "dev:server": "node --env-file=.env server/index.js",
     "restart:server": "powershell -ExecutionPolicy Bypass -File ./scripts/restart-server.ps1",
     "seed:demo": "node scripts/seed-demo.mjs",
+    "seed:history": "node scripts/seed-history.mjs",
     "assets:demo": "node scripts/build-demo-assets.mjs",
     "build": "vite build --config client/vite.config.js",
     "preview": "vite preview --config client/vite.config.js",
