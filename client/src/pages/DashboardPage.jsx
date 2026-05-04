@@ -42,6 +42,43 @@ function toDateLabel(value) {
   }).format(parsed);
 }
 
+function buildFallbackActivityEvents({ challenge, regionHint }) {
+  const now = Date.now();
+  const challengeTitle = String(challenge?.title || "Weekend Challenge").trim() || "Weekend Challenge";
+  const region = String(regionHint || challenge?.location || "Offshore").trim() || "Offshore";
+  const species = String(challenge?.species || "Mahi-Mahi").trim() || "Mahi-Mahi";
+
+  return [
+    {
+      id: "local-fallback-1",
+      eventType: "climb_leaderboard",
+      source: "demo",
+      actorName: "Luca Marin",
+      region,
+      occurredAt: new Date(now - 22 * 60 * 1000).toISOString(),
+      message: `Luca Marin climbed to #2 on ${challengeTitle} in ${region}`
+    },
+    {
+      id: "local-fallback-2",
+      eventType: "submit_catch",
+      source: "demo",
+      actorName: "Mateo Cruz",
+      region,
+      occurredAt: new Date(now - 54 * 60 * 1000).toISOString(),
+      message: `Mateo Cruz submitted a ${species} in ${region}`
+    },
+    {
+      id: "local-fallback-3",
+      eventType: "join_challenge",
+      source: "demo",
+      actorName: "Nico Alvarez",
+      region,
+      occurredAt: new Date(now - 97 * 60 * 1000).toISOString(),
+      message: `Nico Alvarez joined ${challengeTitle} in ${region}`
+    }
+  ];
+}
+
 function getBrowserCoordinates() {
   return new Promise((resolve) => {
     if (!("geolocation" in navigator)) {
@@ -204,15 +241,13 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
 
   useEffect(() => {
     const challengeId = Number(challenge?.id);
-    if (!Number.isFinite(challengeId) || challengeId <= 0) {
-      setActivityEvents([]);
-      return;
-    }
-
     const regionHint = String(auth?.user?.region || auth?.user?.location || challenge?.location || "").trim();
+    const fallbackEvents = buildFallbackActivityEvents({ challenge, regionHint });
     const params = new URLSearchParams();
-    params.set("challengeId", String(challengeId));
     params.set("limit", "8");
+    if (Number.isFinite(challengeId) && challengeId > 0) {
+      params.set("challengeId", String(challengeId));
+    }
     if (regionHint) {
       params.set("region", regionHint);
     }
@@ -221,10 +256,10 @@ export default function DashboardPage({ auth, navigate, onAuth }) {
       .then((res) => res.json())
       .then((data) => {
         const events = Array.isArray(data?.events) ? data.events : [];
-        setActivityEvents(events);
+        setActivityEvents(events.length > 0 ? events : fallbackEvents);
       })
       .catch(() => {
-        setActivityEvents([]);
+        setActivityEvents(fallbackEvents);
       });
   }, [challenge?.id, challenge?.location, auth?.user?.region, auth?.user?.location]);
 
